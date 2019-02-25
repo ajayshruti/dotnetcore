@@ -1,0 +1,3772 @@
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+#Script to import site columns group "NYCERS Columns" into destination web
+#
+# Author: Ajay Joshi
+# 
+# File: Import Site Columns.ps1
+#
+#
+# Last modified: 01/18/2019
+#---------------------------------------------------------------------------------------------------------------------------
+
+
+# Get destination web fields
+$dfields = $dRootCtx.web.fields
+$dRootCtx.load($dfields)
+
+
+#XML Path
+#Main starting Point -> XML Path
+$file = (get-location).Path + "\" + "sitecolumns.xml";
+[xml]$xmlDocument = Get-Content -path $file
+
+#[xml]$xmlDocument = Get-Content -path "C:\QADeploymentScripts\sitecolumns.xml"
+
+$fieldslist = $xmlDocument.Elements.Field 
+
+ForEach($field in $fieldslist)   
+    {   
+    $fieldExists = 0
+    $sfieldTitle = $field.GetAttribute("Name")
+       
+    Try{
+            $AlreadyExists = $dRootCtx.Web.Fields.GetByInternalNameOrTitle($sfieldTitle)
+            $dRootCtx.load($AlreadyExists)
+            $dRootCtx.ExecuteQuery()
+        }
+    catch{
+                        Write-Host $_.Exception.Message -ForegroundColor Red;
+                        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\SiteColumnsErrors.txt -Append;
+                        $fieldExists = 1
+         }
+
+
+
+    if ($fieldExists -eq 1)
+                {
+                     try{
+                
+                         $fieldXML = $field.OuterXml
+                         $dfields.AddFieldAsXml($fieldXML, $true, [Microsoft.SharePoint.Client.AddFieldOptions]::AddFieldToDefaultView)   
+                         $dRootCtx.Load($dfields)   
+                         $dRootCtx.ExecuteQuery() 
+                         }
+
+                    catch{
+                            Write-Host $_.Exception.Message -ForegroundColor Red;
+                            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\SiteColumnsErrors.txt -Append;
+                        }
+                   
+                 }
+
+    }
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+#Script to import NYCERS Content Types into destination web
+#
+# Author: Ajay Joshi
+# 
+# File: Import Site Content Types.ps1
+#
+#
+# Last modified: 01/18/2019
+#---------------------------------------------------------------------------------------------------------------------------
+
+
+#Function to add columns into content types
+function AddColumnsToContentType($cc)
+{
+foreach($cc in $dRootCtx.Web.ContentTypes)
+
+            {
+               if($cc.Name -eq $spContentType.Name)
+
+               {
+   
+                      #Check if column already added to the content type
+                      $dContentTypes = $dRootWeb.ContentTypes
+                      $dRootCtx.load($dContentTypes)
+                      $dRootCtx.ExecuteQuery()
+                      $FieldCollection = $cc.Fields
+                      $dRootCtx.Load($FieldCollection)
+                      $dRootCtx.ExecuteQuery()
+                      $fieldslist = $_.Fields.Field
+
+                      ForEach($field in $fieldslist)
+                        {
+                              
+                            $fieldExists = $FieldCollection | Where {$FieldCollection.Title  -eq $field.DisplayName}
+                            
+                            if($fieldExists -ne $Null)
+                              {
+                                #Write-host "Column '$field.DisplayName' Already Exists in the content type!" -f Yellow
+                              }
+                              else{
+                                    
+                                    Try{
+                                        $AlreadyExists = $dRootWeb.Fields.GetByInternalNameOrTitle($field.Name)
+                                        $dRootCtx.Load($AlreadyExists)
+                                        $dRootCtx.ExecuteQuery()
+                                        $link=new-object Microsoft.SharePoint.Client.FieldLinkCreationInformation
+                                        $link.Field=$AlreadyExists
+                                        $cc.FieldLinks.Add($link)
+                                        $cc.Update($false)
+                                        $dRootCtx.ExecuteQuery()
+            
+                                    }
+                                    catch{
+                                
+                                          Write-Host $_.Exception.Message -ForegroundColor Red;
+                                          echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ImportContentTypes.txt -Append;
+                                         } 
+                            
+                                        #Write-Host $field.Name -ForegroundColor Red; 
+                              }
+ 
+
+                        }  
+                                        return
+                }
+              }
+
+}
+
+
+#Main starting Point -> XML Path
+$file = (get-location).Path + "\" + "ContentType.xml";
+[xml]$xmlDocument = Get-Content -path $file
+
+$dContentTypes = $dRootWeb.ContentTypes
+$dRootCtx.load($dContentTypes)
+$dRootCtx.ExecuteQuery()
+
+$xmlDocument.Elements.ContentType | ForEach-Object {
+
+
+Try{
+    #Set Content Type description and group
+    $spContentType =New-Object Microsoft.SharePoint.Client.ContentTypeCreationInformation
+    $spContentType.Description = $_.Description
+    $spContentType.Group = $_.Group
+    $spContentType.Name = $_.Name;
+    $spContentType.Id = $_.ID;
+    $spContentType = $dContentTypes.Add($spContentType);
+    $dRootCtx.Load($spContentType); 
+    $dRootCtx.ExecuteQuery();
+
+    
+ }
+ catch 
+ {
+    Write-Host $_.Exception.Message -ForegroundColor yellow;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ImportContentTypes.txt -Append;
+
+ }
+
+    #Calling function 
+    AddColumnsToContentType $_                
+                   
+}
+ 
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Connect to SharePoint Online, Create necessary context objects
+#
+# Author: Harshadbhai Bhoi
+# 
+# File: 01_ConnectToNYCERS-SPO.ps1
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$ReqDelay = 3
+$path = "C:\Program Files\Common Files\microsoft shared\Web Server Extensions\16\ISAPI\"
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.dll")
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.Runtime.dll")
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.Taxonomy.dll")
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.Publishing.dll")
+
+Write-Host "`n`nReading configuration.............."(Get-Date).ToString() -foregroundcolor Green
+#Read XML configuration
+[xml]$config = Get-Content NYCERS_Sprint_6.xml;
+
+$SprintNumber = $config.NYCERS.Sprint;
+
+#Your SharwPoint online Credentials
+$username = $config.NYCERS.UserName;
+$Password = Read-Host -Prompt "Please enter your password"  -AsSecureString;
+$sCredentials = New-Object Microsoft.SharePoint.Client.SharePointOnlineCredentials($username, $Password)
+
+#Source & Destination Site
+Write-Host "Connecting to source.............." -foregroundcolor Cyan
+$sRootUrl = $config.NYCERS.srcRootSiteURL;
+$sRootCtx = New-Object Microsoft.SharePoint.Client.ClientContext($sRootUrl)
+$sRootCtx.Credentials = $sCredentials
+
+Write-Host "..............Creating Web object for source" -foregroundcolor Cyan
+$sRootWeb = $sRootCtx.Web;
+$sRootCols = $sRootWeb.Fields
+
+$sRootCtx.Load($sRootWeb)
+$sRootCtx.Load($sRootCols)
+
+try{
+    $sRootCtx.ExecuteQuery()
+    Start-Sleep -S $ReqDelay
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ConnectToNYCERS-SPO.txt -Append;
+}
+
+Write-Host "Connecting to destination.............." -foregroundcolor Cyan
+$dRootUrl = $config.NYCERS.dstRootSiteURL;
+$dRootCtx = New-Object Microsoft.SharePoint.Client.ClientContext($dRootUrl)
+$dRootCtx.Credentials = $sCredentials
+
+Write-Host "..............Creating Web object for source" -foregroundcolor Cyan
+$dRootWeb = $dRootCtx.Web;
+$dRootCols = $dRootWeb.Fields
+
+$dRootCtx.Load($dRootWeb)
+$dRootCtx.Load($dRootCols)
+$dRootCtx.RequestTimeout = 5000*10000
+
+try {
+    $dRootCtx.ExecuteQuery()
+    Start-Sleep -S $ReqDelay
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ConnectToNYCERS-SPO.txt -Append;
+}
+ 
+
+
+
+
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create content types at root site
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$XMLContent = "";
+$GroupToExport = "NYCERS Content Type";
+
+$sRootContentTypes = $sRootCtx.Web.AvailableContentTypes;
+$sRootCtx.Load($sRootContentTypes);
+
+try  {
+    $sRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+}
+
+
+#Create Export Files
+$XMLContent = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<ContentTypes>";
+ 
+$sRootContentTypes | ForEach-Object {
+    if ($_.Group -eq $GroupToExport) {
+        $XMLContent += $_.SchemaXml;
+    }
+}
+
+$XMLContent += "</ContentTypes>";
+
+[xml]$CTXML = [xml]$XMLContent;
+$dRootContentTypes = $dRootCtx.Web.ContentTypes;
+$dRootCtx.Load($dRootContentTypes);
+
+try  {
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+}
+
+function Upload-DocumentTemplate($CntTypeId)
+{
+    #Start-Sleep -s 10
+    $newContentType = $dRootCtx.Web.ContentTypes.GetById($CntTypeId.StringValue);
+    $dRootCtx.Load($newContentType); 
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $dRootCtx.Load($dRootCtx.Web);
+    $dRootCtx.Load($dRootCtx.Web.Folders);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+    
+    $ctFolderServerRelativeURL = $dRootCtx.Web.ServerRelativeUrl + "/_cts/" + $newContentType.Name;
+    $ctFolder = $dRootCtx.Web.GetFolderByServerRelativeUrl($ctFolderServerRelativeURL);
+    $dRootCtx.Load($ctFolder);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+    
+    
+    $path = (get-location).Path + "\Root Site\DocumentTemplates\" + $newContentType.Name + ".dotx";
+    $fileName = [System.IO.Path]::GetFileName($path);
+    $filecontent = [System.IO.File]::ReadAllBytes($path);
+
+    $newFile = New-Object Microsoft.SharePoint.Client.FileCreationInformation;
+    $newFile.Content = $filecontent;
+    $newFile.Url = $ctFolderServerRelativeURL + "/" + $fileName;
+
+    $uploadedFile = $ctFolder.Files.Add($newFile);
+    $dRootCtx.Load($uploadedFile);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;    
+               
+    #$dRootCtx.Load($newContentType); 
+    #$dRootCtx.ExecuteQuery();
+    $newContentType.DocumentTemplate = $fileName;
+    $newContentType.Update($false);
+    $dRootCtx.Load($newContentType); 
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+}
+
+function AddColumnsToContentType([System.Xml.XmlElement]$CTDetail)
+{
+    #Create Content Type object inheriting from parent
+    $ctci = new-object Microsoft.SharePoint.Client.ContentTypeCreationInformation
+    $ctci.Name = $CTDetail.Name;
+    $ctci.Id = $CTDetail.ID;
+    $ctci.Description = $CTDetail.Description;
+    $ctci.Group = $CTDetail.Group;
+    $ctci = $dRootContentTypes.Add($ctci);
+    $dRootCtx.Load($ctci);        
+    
+    try  {
+        $dRootCtx.ExecuteQuery();
+        start-sleep -S $ReqDelay;
+    }
+    catch{
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+    }
+
+    write-host "`nContent type '"$CTDetail.Name"' has been created" -foregroundcolor green;
+
+    if($CTDetail.Name -ne 'Board Rule Document') {
+        # get the new content type object
+        $newContentType = $dRootCtx.Web.ContentTypes.GetById($ctci.Id);
+      
+        $CTDetail.Fields.Field  | ForEach-Object {
+
+            if($_.Name.length -gt 0)
+            {
+                $tcolName = $_.Name;
+                $field = $dRootCols.GetByInternalNameOrTitle($_.Name);         
+                $flci = new-object Microsoft.SharePoint.Client.FieldLinkCreationInformation;
+                $flci.Field = $field;
+            
+                $addContentType = $newContentType.FieldLinks.Add($flci);
+                $newContentType.Update($true);
+
+                Try  {
+                    $dRootCtx.Load($newContentType);
+                    $dRootCtx.Load($dRootContentTypes);                
+                    $dRootCtx.ExecuteQuery();
+                    write-host "...........added $($_.Name)" -foregroundcolor Yellow;
+                    start-sleep -S $ReqDelay;
+                }
+                catch{
+                    echo "Error occured adding column:$($tcolName)" | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+                    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+                }                
+            }
+        }
+
+        #Update template
+        if($newContentType.Name -eq "Directors Memo" -or $newContentType.Name -eq "Regulation Reference Library CT")  
+        {
+            Upload-DocumentTemplate -CntTypeId $ctci.Id
+        }
+    }
+}
+
+write-host "`nStarted creating content types......." -foregroundcolor green;
+
+AddColumnsToContentType $CTXML.SelectSingleNode("//ContentType[@Name='Regulation Reference Library CT']")
+
+$CTXML.ContentTypes.ContentType | ForEach-Object {
+            
+    if($_.Name -ne 'Regulation Reference Library CT')
+    {
+        AddColumnsToContentType $_
+    }
+}
+
+Write-Host "`n`n.......All content types created"(Get-Date).ToString() -foregroundcolor Cyan 
+
+
+
+
+
+
+
+ 
+Write-Host "`n`nStarting deployment!......."(Get-Date).ToString() -foregroundcolor Cyan
+
+. .\01_ConnectToNYCERS-SPO.ps1
+
+Start-Sleep -Seconds 15
+
+. .\02_Import_AllList_Templates.ps1
+
+Start-Sleep -Seconds 15
+
+. .\03_Create_Sites_and_Subsites.ps1
+
+Start-Sleep -Seconds 15
+
+. .\04_Create_ListsLibraryAtRoot.ps1
+
+Start-Sleep -Seconds 15
+
+. .\05_CreateSiteColumns.ps1
+
+Start-Sleep -Seconds 15
+
+. .\06_CreateContentTypes.ps1
+
+Start-Sleep -Seconds 15
+
+. .\07_Fix_RootLookUpsInSPLists.ps1
+
+Start-Sleep -Seconds 15
+
+. .\08_Fix_RRLLookupsInSPLists.ps1
+
+Start-Sleep -Seconds 15
+
+. .\09_CreateSPOGroups.ps1
+
+Start-Sleep -Seconds 15
+
+. .\10_CreateBUFolders_DivisionSubSite.ps1
+
+Start-Sleep -Seconds 15
+
+. .\11_CreateViews_RRLWeb.ps1
+
+Start-Sleep -Seconds 15
+
+. .\12_Import-RRLWorkflows.ps1
+
+Start-Sleep -Seconds 15
+
+. .\13_UpdateWorkflowSubscriptionList.ps1
+
+Start-Sleep -Seconds 15
+
+. .\14_Configure_SearchScopes.ps1
+
+Start-Sleep -Seconds 15
+
+. .\15_Upload_UI_Artefacts.ps1
+
+Start-Sleep -Seconds 15
+
+. .\16_ImportExport_ManagedNavigation.ps1
+
+Start-Sleep -Seconds 15
+
+. .\17_ImportExport_QuickLaunch.ps1
+
+
+Write-Host "`n`nWow!.......It's done!......."(Get-Date).ToString() -foregroundcolor Cyan 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Upload lists/libraries templates to list template gallery
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+Write-Host "`nStarted uploading list templates" -foregroundcolor Green
+
+function create-SPList($listTitle, $lstTemplId, $tWeb)
+{
+    $lci = New-Object Microsoft.SharePoint.Client.ListCreationInformation
+    $lci.title = $listTitle
+    $lci.description = ""
+    $lci.TemplateType = $lstTemplId
+    $list = $tWeb.Lists.add($lci)
+    $dRootCtx.Load($list)
+
+    #send the request containing all operations to the server
+    try  {
+        $dRootCtx.executeQuery()
+        write-host "           ...........Created "$listTitle -foregroundcolor Cyan
+        Start-Sleep -S $ReqDelay
+    }
+    catch {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Create_Sites_and_Subsites.txt -Append;
+    }
+}
+
+function Activate-Solution($sSolFile)
+{ 
+    try 
+    {
+        $DesignPackageInfo = New-Object Microsoft.SharePoint.Client.Publishing.DesignPackageInfo 
+        $DesignPackageInfo.PackageGuid = [GUID]::Empty 
+        $DesignPackageInfo.MajorVersion = 1 
+        $DesignPackageInfo.MinorVersion = 1 
+        $DesignPackageInfo.PackageName = $sSolFile.Substring(0, $sSolFile.IndexOf("."))
+        $tSiteColRelURL = $dRootCtx.Web.ServerRelativeUrl + "/Solution%20Repository/" + $SprintNumber + "/" + $sSolFile
+        
+        [Microsoft.SharePoint.Client.Publishing.DesignPackage]::Install($dRootCtx, $dRootCtx.Site, $DesignPackageInfo, $tSiteColRelURL)
+        $dRootCtx.ExecuteQuery()
+        Start-Sleep -S $ReqDelay
+        #[Microsoft.SharePoint.Client.Publishing.DesignPackage]::Apply($dRootCtx, $dRootCtx.Site, $DesignPackageInfo);
+        #$dRootCtx.ExecuteQuery()
+    } 
+    catch { 
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Import-RRLWorkflows.txt -Append;
+    }     
+}
+
+function Upload-Files($destGalleryName, $dstWeb, $dstFolderName, $srcPath, $fileFilter)
+{
+    try  
+    {
+        $dlstTmplGallery = $dstWeb.Lists.GetByTitle($destGalleryName)
+        $dRootCtx.Load($dlstTmplGallery)
+        $dRootCtx.Load($dlstTmplGallery.RootFolder)
+        $dRootCtx.ExecuteQuery()
+        Start-Sleep -S $ReqDelay
+
+        $dstFolder = $dlstTmplGallery.RootFolder
+
+        if($dstFolderName -ne $null)
+        {
+            $dstFolder = $dlstTmplGallery.RootFolder.Folders.Add($dstFolderName);
+            $dRootCtx.Load($dstFolder);
+            $dRootCtx.ExecuteQuery();
+            Start-Sleep -S $ReqDelay
+        }
+
+        Get-ChildItem $srcPath -Filter $fileFilter | Foreach-Object {
+
+            $stpFullFilePath = $_.FullName;
+            $stpFileName = $_.Name
+
+            $stpfileStream = New-Object System.IO.FileStream($stpFullFilePath, [System.IO.FileMode]::Open) 
+ 	 
+            #Create the FileCreationInformation object and prepare to upload it to the solution gallery 
+            $fileCI = New-Object Microsoft.SharePoint.Client.FileCreationInformation 
+            $fileCI.Overwrite = $true 
+            $fileCI.ContentStream = $stpfileStream 
+            $fileCI.URL = $stpFileName
+ 	 
+            #upload the solution to the gallery 
+            $uploadedFile = $dstFolder.Files.Add($fileCI); 
+            $dRootCtx.Load($uploadedFile);
+        
+            $dRootCtx.ExecuteQuery();
+            Write-Host "...........uploaded "$stpFileName -foregroundcolor Yellow
+            start-sleep -S $ReqDelay;
+        }
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Import_AllList_Templates.txt -Append;
+    }
+}
+
+function Create-ListFromTemplate($ListTemplateInternalName, $targetWeb)
+{
+    $ListTemplates = $dRootCtx.Site.GetCustomListTemplates($targetWeb)
+
+    $dRootCtx.Load($ListTemplates) 
+    $dRootCtx.Load($dRootWeb.Lists) 
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $items = $ListTemplateInternalName.split(",")
+
+    foreach ( $i in $items)
+    {
+        $ListTemplate = $ListTemplates | where { $_.InternalName -eq $i } 
+
+        if ($ListTemplate -eq $null) 
+        { 
+            Throw [System.Exception] "Template not found" 
+        } 
+
+        try
+        {
+            $ListCreation = New-Object Microsoft.SharePoint.Client.ListCreationInformation 
+                
+            # Creating Listcreation object for RRL
+            $ListCreation.ListTemplate = $ListTemplate
+            $ListCreation.Title = $ListTemplate.name
+            $ListCreation.TemplateFeatureId = $ListTemplate.FeatureId 
+            $ListCreation.TemplateType = $ListTemplate.ListTemplateTypeKind 
+                           
+            # Creating Newlist object after loading listcreation in RRLweb
+            $newList = $targetWeb.Lists.Add($ListCreation)
+
+            # Loading Newlist object into RRLContext
+            $dRootCtx.Load($newList)
+            $dRootCtx.ExecuteQuery()
+            start-sleep -S $ReqDelay;
+
+            Write-Host "...........List created '"$ListTemplate.name"'" -foregroundcolor Yellow            
+        }
+        catch
+        {
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Create_ListsLibraryAtRoot.txt -Append;
+        }
+    }
+}
+
+function Add-ContentTypeToList($ListName, $targetWeb, $ContentTypeName)
+{
+    try
+    {
+        #Add content type to director's memo library
+        $divContentTypes = $targetWeb.AvailableContentTypes
+
+        $dRootCtx.Load($targetWeb.Lists)    
+        $dRootCtx.Load($divContentTypes)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        $objList = $targetWeb.Lists.GetByTitle($ListName)
+        $dRootCtx.Load($objList)
+        $dRootCtx.Load($objList.ContentTypes)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        $docCt = $divContentTypes | where { $_.Name -eq $ContentTypeName }
+    
+        $objList.ContentTypesEnabled = $true
+        $addList = $objList.ContentTypes.AddExistingContentType($docCt)    
+        $objList.Update()
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Create_ListsLibraryAtRoot.txt -Append;
+    }
+}
+
+
+Upload-Files -destGallery "List Template Gallery" -dstWeb $dRootCtx.Web -dstFolder $null -srcPath ".\Root Site\List Templates" -fileFilter "*.stp"
+
+create-SPList -listTitle "Solution Repository" -lstTemplId 101 -tWeb $dRootWeb
+
+Upload-Files -destGallery "Solution Repository" -dstWeb $dRootWeb -dstFolder $SprintNumber -srcPath ".\Root Site\WorkflowSolutions" -fileFilter "*.wsp"
+Upload-Files -destGallery "Solution Repository" -dstWeb $dRootWeb -dstFolder $SprintNumber -srcPath ".\Root Site\WebpartsAndThemes" -fileFilter "*.wsp" 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create site & sub sites and common lists/libraries for all divisions
+#
+# Author: Ajay Joshi, Harsahdbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+Write-Host "`nActivating 'SharePoint Server Publishing Infrastructure' feature" -foregroundcolor Green
+Write-Host "`n...........This operation may take little longer." -foregroundcolor Yellow
+$siteFeatures = $dRootCtx.Site.Features 
+$dRootCtx.Load($dRootCtx.Web.Features)  
+$dRootCtx.Load($siteFeatures)  
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+ 
+$featureId = “f6924d36-2fa8-4f0b-b16d-06b7250180fa”  
+$fId = [GUID]$featureId  
+$siteFeatures.Add($fId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::None) | Out-Null
+$dRootCtx.ExecuteQuery()
+Write-Host "`nActivated 'SharePoint Server Publishing Infrastructure' feature" -foregroundcolor Green
+start-sleep -S $ReqDelay;
+
+$featureId = [System.GUID]("94c94ca6-b32f-4da9-a9e3-1f3d343d7ecb");
+#Activating web publishing feature
+$dRootCtx.Web.Features.Add($featureId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::None) | Out-Null
+$dRootCtx.Web.Features.Add([System.GUID]("0d1c50f7-0309-431c-adfb-b777d5473a65"), $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::None) | Out-Null
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$dstHomePath = (get-location).Path + "\Root Site\Site Pages\Home.aspx";
+$srcHomePath = (get-location).Path + "\Root Site\Site Pages\NyceHome.tmp";
+
+$tmpContent = (Get-Content $srcHomePath).replace($sRootWeb.Url, $dRootWeb.Url)
+$tmpContent.replace($sRootWeb.ServerRelativeUrl, $dRootWeb.ServerRelativeUrl) | Set-Content $dstHomePath
+$tmpContent = ""
+
+#Upload site pages
+Upload-Files -destGallery "Site Pages" -dstWeb $dRootCtx.Web -dstFolder $null -srcPath ".\Root Site\Site Pages" -fileFilter "*.aspx"
+
+$dRootCtx.Web.SiteLogoUrl = $dRootWeb.ServerRelativeUrl + "/PublishingImages/sharepoint/nyceconnect_logo/logo_noBG_small.png";
+$dRootCtx.Web.Update();
+$dRootCtx.Load($dRootCtx.Web.RootFolder)
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay;
+
+#Create SubSite
+$listDivTitle = "Operations,Organizational Development & Training,Service and Disbursements,Administration,Communications,Finance,Client Services,Information Technology,Compliance,Security & Facilities Operations,Business Rules & Data,Legal,Human Resources,Internal Audit,Executive,Reference Library"
+$listDivUrl = "Operations,ODT,SD,Administration,Communications,Finance,ClientServices,IT,Compliance,SFO,BRD,Legal,HR,InternalAudit,Executive,Compliance/RRL"
+
+$ListTemplateInternalName = "Quick Links.stp,News Listings.stp"
+
+$arrDivTitle = $listDivTitle.Split(",")
+$arrDivUrl = $listDivUrl.Split(",")
+
+#Activate BT solutions
+Get-ChildItem ".\Root Site\WebpartsAndThemes" -Filter *.wsp | Foreach-Object {
+
+    $WspFileName = $_.Name
+
+    try  
+    {        
+        if(!$WspFileName.StartsWith("RRL"))
+        {
+            Write-Host "...........activating "$WspFileName -foregroundcolor Yellow
+            Activate-Solution -sSolFile $WspFileName            
+            Write-Host "...........activated "$WspFileName -foregroundcolor Yellow            
+        }
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Import-RRLWorkflows.txt -Append;
+    }
+}
+
+Write-Host "`nStarted creating Divison sub sites" -foregroundcolor Green
+
+for($i=0; $i -lt $arrDivTitle.Length; $i++) 
+{
+    $WCI = New-Object Microsoft.SharePoint.Client.WebCreationInformation
+    $WCI.WebTemplate = "STS#0"
+    $WCI.Description = $arrDivTitle[$i];
+    $WCI.Title = $arrDivTitle[$i];
+    $WCI.Url = $arrDivUrl[$i];
+    $WCI.Language = "1033"
+    $SubWeb = $dRootCtx.Web.Webs.Add($WCI)
+    $dRootCtx.Load($SubWeb)
+
+    try  
+    {
+        $dRootCtx.ExecuteQuery()
+        Write-Host "...........sub site created for "$arrDivTitle[$i] -foregroundcolor Yellow
+        start-sleep -S $ReqDelay;
+    }
+    Catch 
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Create_Sites_and_Subsites.txt -Append;
+    }
+
+    $WebTitle = $SubWeb.ServerRelativeUrl.Substring($SubWeb.ServerRelativeUrl.LastIndexOf("/")+1);
+    $srcHomePath = (get-location).Path + "\DivisionSitePages\" + $WebTitle + ".tmp";    
+
+    if($arrDivTitle[$i] -ne "Reference Library")
+    {
+        create-SPList -listTitle "Procedural Manual" -lstTemplId 119 -tWeb $SubWeb        
+        create-SPList -listTitle "Calendar" -lstTemplId 106 -tWeb $SubWeb        
+        create-SPList -listTitle "Director's Memos" -lstTemplId 101 -tWeb $SubWeb        
+        create-SPList -listTitle "Division Forms" -lstTemplId 101 -tWeb $SubWeb        
+        create-SPList -listTitle "News & Announcements" -lstTemplId 104 -tWeb $SubWeb
+    }
+
+    $dRootCtx.Load($SubWeb.Features)
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $SubWeb.Features.Add($featureId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::None) | Out-Null    
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $SubWeb.Features.Add([System.GUID]("0d1c50f7-0309-431c-adfb-b777d5473a65"), $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::None) | Out-Null
+    $SubWeb.Features.Add([System.GUID]("961d6a9c-4388-4cf2-9733-38ee8c89afd4"), $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::None) | Out-Null    
+    $dRootCtx.ExecuteQuery();
+    start-sleep -Seconds $ReqDelay;
+
+    Write-Host "           ...........Publishing feature enabled" -foregroundcolor Cyan
+
+    if($WebTitle -ne "RRL")
+    {
+        $dstHomePath = (get-location).Path + "\DivisionSitePages\Home.aspx";
+        $tmpContent = (Get-Content $srcHomePath).replace($sRootWeb.Url, $dRootWeb.Url) #| Set-Content $dstHomePath
+        $tmpContent.replace($sRootWeb.ServerRelativeUrl, $dRootWeb.ServerRelativeUrl) | Set-Content $dstHomePath
+        $tmpContent = ""
+    }
+
+    #Upload site pages
+    Upload-Files -destGallery "Site Pages" -dstWeb $SubWeb -dstFolder $null -srcPath ".\DivisionSitePages" -fileFilter "*.aspx"
+
+    $dRootCtx.Load($SubWeb.RootFolder)
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    Create-ListFromTemplate -ListTemplateInternalName $ListTemplateInternalName -targetWeb $SubWeb
+
+    #Add-ContentTypeToList -ListName "Director's Memos" -targetWeb $SubWeb -ContentTypeName "Directors Memo"
+} 
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create lists/libraries at root site
+#
+# Author: Ajay Joshi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+#Creating lists and library at root site collection
+Write-Host "`nStarted creating lists at root site" -foregroundcolor Green
+
+$ListTemplateInternalName = "Tiers and Plans.stp,All Business Processes.stp,All Business Units.stp,All Divisions.stp,Announcements Listings.stp,Blogs Listings.stp,Division Quick Links.stp,NYCERS Quick Links.stp,Procedural Manual - Sections.stp,Archived NYCENotes.stp";
+
+Create-ListFromTemplate -ListTemplateInternalName $ListTemplateInternalName -targetWeb $dRootWeb
+
+create-SPList -listTitle "Events at NYCERS" -lstTemplId 106 -tWeb $dRootWeb
+create-SPList -listTitle "NYCERS Announcements" -lstTemplId 104 -tWeb $dRootWeb
+
+
+
+#Create libraries at RRL
+$ListTemplateInternalName = "Deactivation Reasons.stp,Directive Survey.stp,Email Templates.stp,RRL Tasks.stp,Template Library.stp,Validation Form.stp,Workflow Subscriptions.stp";
+
+#Upload RRL files
+$dRrlWeb = $dRootCtx.Site.OpenWeb($dRootCtx.Web.ServerRelativeUrl + "/compliance/RRL")
+$dRootCtx.Load($dRrlWeb)
+$dRootCtx.Load($dRrlWeb.RootFolder)
+$dRootCtx.Load($dRrlWeb.Lists)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+Create-ListFromTemplate -ListTemplateInternalName $ListTemplateInternalName -targetWeb $dRrlWeb
+
+create-SPList -listTitle "Chat with Compliance" -lstTemplId 108 -tWeb $dRrlWeb
+#create-SPList -listTitle "RL User Guide" -lstTemplId 119 -tWeb $SubWeb
+#create-SPList -listTitle "RL Adminstration Guide" -lstTemplId 119 -tWeb $SubWeb 
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create site columns at root site
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$sGroupName = "NYCERS Columns";
+
+$allBUProc = $dRootCtx.Web.Lists.GetByTitle("All Business Processes");
+$allBUUnits = $dRootCtx.Web.Lists.GetByTitle("All Business Units");
+$allDivisions = $dRootCtx.Web.Lists.GetByTitle("All Divisions");
+$PMSecs = $dRootCtx.Web.Lists.GetByTitle("Procedural Manual - Sections");
+$TierPlan = $dRootCtx.Web.Lists.GetByTitle("Tiers and Plans");
+
+$dRootCtx.Load($allBUProc)
+$dRootCtx.Load($allBUProc.Fields)
+$dRootCtx.Load($allBUUnits)
+$dRootCtx.Load($allBUUnits.Fields)
+$dRootCtx.Load($allDivisions)
+$dRootCtx.Load($allDivisions.Fields)
+$dRootCtx.Load($PMSecs)
+$dRootCtx.Load($PMSecs.Fields)
+$dRootCtx.Load($TierPlan)
+$dRootCtx.Load($TierPlan.Fields)
+
+try  {
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateSiteColumns.txt -Append;
+}
+
+
+Write-Host "`n`nFound" $sRootCols.Count "Site Columns" -ForegroundColor Green
+Write-Host "`nStarted adding site columns" -foregroundcolor Green
+
+function fix-Lookups([xml]$tColXML)
+{
+    if($sColXML.DocumentElement.Attributes["Type"].Value.Contains("Lookup"))
+    {
+        $tColXML.DocumentElement.SetAttribute("WebId", "{" + $dRootWeb.Id.ToString() + "}");
+        $tColXML.DocumentElement.SetAttribute("SourceID", "{" + $dRootWeb.Id.ToString() + "}");
+
+        $colIntrnlName = $tColXML.DocumentElement.Attributes["DisplayName"].Value;
+
+        if($colIntrnlName -eq "Division" -or $colIntrnlName -eq "Divisions")  {
+            $tColXML.DocumentElement.SetAttribute("List", "{" + $allDivisions.Id.ToString() + "}");                    
+        }
+        elseif($colIntrnlName -eq "Business Processes")  {
+            $tColXML.DocumentElement.SetAttribute("List", "{" + $allBUProc.Id.ToString() + "}");
+        }
+        elseif($colIntrnlName -eq "Business Unit" -or $colIntrnlName -eq "Business Units")  {
+            $tColXML.DocumentElement.SetAttribute("List", "{" + $allBUUnits.Id.ToString() + "}");
+        }
+        elseif($colIntrnlName -eq "Sections Of Proc Manuals")  {
+            $tColXML.DocumentElement.SetAttribute("List", "{" + $PMSecs.Id.ToString() + "}");
+        }
+        elseif($colIntrnlName -eq "Tier Plans")  {
+            $tColXML.DocumentElement.SetAttribute("List", "{" + $TierPlan.Id.ToString() + "}");
+        }
+    }
+
+    return $tColXML.OuterXml.ToString();
+}
+
+foreach($sCol in $sRootCols)
+{
+    if($sCol.Group -eq $sGroupName)
+    {    
+        [xml]$sColXML = $sCol.SchemaXml
+        $dd = $sColXML.DocumentElement
+        $dd.RemoveAttribute("Version")
+        $newCol = fix-Lookups($sColXML)
+        $dRootCols.AddFieldAsXml($newCol, $true, [Microsoft.SharePoint.Client.AddFieldOptions]::AddFieldToDefaultView) > $null
+        $dRootCtx.Load($dRootCols)
+
+        try  {
+            $dRootCtx.ExecuteQuery()
+            start-sleep -S $ReqDelay;
+        }
+        catch{
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateSiteColumns.txt -Append;
+        }
+
+
+        Write-Host "...........added "$sCol.Title -foregroundcolor Yellow        
+    }
+}
+
+Write-Host "`n`n.......All site columns created"(Get-Date).ToString() -foregroundcolor Cyan 
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create content types at root site
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$XMLContent = "";
+$GroupToExport = "NYCERS Content Type";
+
+$sRootContentTypes = $sRootCtx.Web.AvailableContentTypes;
+$sRootCtx.Load($sRootContentTypes);
+
+try  {
+    $sRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+}
+
+
+#Create Export Files
+$XMLContent = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<ContentTypes>";
+ 
+$sRootContentTypes | ForEach-Object {
+    if ($_.Group -eq $GroupToExport) {
+        $XMLContent += $_.SchemaXml;
+    }
+}
+
+$XMLContent += "</ContentTypes>";
+
+[xml]$CTXML = [xml]$XMLContent;
+$dRootContentTypes = $dRootCtx.Web.ContentTypes;
+$dRootCtx.Load($dRootContentTypes);
+
+try  {
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+}
+
+function Upload-DocumentTemplate($CntTypeId)
+{
+    #Start-Sleep -s 10
+    $newContentType = $dRootCtx.Web.ContentTypes.GetById($CntTypeId.StringValue);
+    $dRootCtx.Load($newContentType); 
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $dRootCtx.Load($dRootCtx.Web);
+    $dRootCtx.Load($dRootCtx.Web.Folders);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+    
+    $ctFolderServerRelativeURL = $dRootCtx.Web.ServerRelativeUrl + "/_cts/" + $newContentType.Name;
+    $ctFolder = $dRootCtx.Web.GetFolderByServerRelativeUrl($ctFolderServerRelativeURL);
+    $dRootCtx.Load($ctFolder);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+    
+    
+    $path = (get-location).Path + "\Root Site\DocumentTemplates\" + $newContentType.Name + ".dotx";
+    $fileName = [System.IO.Path]::GetFileName($path);
+    $filecontent = [System.IO.File]::ReadAllBytes($path);
+
+    $newFile = New-Object Microsoft.SharePoint.Client.FileCreationInformation;
+    $newFile.Content = $filecontent;
+    $newFile.Url = $ctFolderServerRelativeURL + "/" + $fileName;
+
+    $uploadedFile = $ctFolder.Files.Add($newFile);
+    $dRootCtx.Load($uploadedFile);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;    
+               
+    #$dRootCtx.Load($newContentType); 
+    #$dRootCtx.ExecuteQuery();
+    $newContentType.DocumentTemplate = $fileName;
+    $newContentType.Update($false);
+    $dRootCtx.Load($newContentType); 
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+}
+
+function AddColumnsToContentType([System.Xml.XmlElement]$CTDetail)
+{
+    #Create Content Type object inheriting from parent
+    $ctci = new-object Microsoft.SharePoint.Client.ContentTypeCreationInformation
+    $ctci.Name = $CTDetail.Name;
+    $ctci.Id = $CTDetail.ID;
+    $ctci.Description = $CTDetail.Description;
+    $ctci.Group = $CTDetail.Group;
+    $ctci = $dRootContentTypes.Add($ctci);
+    $dRootCtx.Load($ctci);        
+    
+    try  {
+        $dRootCtx.ExecuteQuery();
+        start-sleep -S $ReqDelay;
+    }
+    catch{
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+    }
+
+    write-host "`nContent type '"$CTDetail.Name"' has been created" -foregroundcolor green;
+
+    if($CTDetail.Name -ne 'Board Rule Document') {
+        # get the new content type object
+        $newContentType = $dRootCtx.Web.ContentTypes.GetById($ctci.Id);
+      
+        $CTDetail.Fields.Field  | ForEach-Object {
+
+            if($_.Name.length -gt 0)
+            {
+                $tcolName = $_.Name;
+
+                $field = $dRootCols.GetByInternalNameOrTitle($_.Name);         
+                $flci = new-object Microsoft.SharePoint.Client.FieldLinkCreationInformation;
+                $flci.Field = $field;
+            
+                $addContentType = $newContentType.FieldLinks.Add($flci);
+                $newContentType.Update($true);
+
+                try  {
+                    $dRootCtx.Load($newContentType);
+                    $dRootCtx.Load($dRootContentTypes);                
+                    $dRootCtx.ExecuteQuery();
+                    write-host "...........added $($_.Name)" -foregroundcolor Yellow;
+                    start-sleep -S $ReqDelay;
+                }
+                catch{
+                    echo "Error occured adding column:$($tcolName)" | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+                    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateContentTypes.txt -Append;
+                }                
+            }
+        }
+
+        #Update template
+        if($newContentType.Name -eq "Directors Memo" -or $newContentType.Name -eq "Regulation Reference Library CT")  
+        {
+            Upload-DocumentTemplate -CntTypeId $ctci.Id
+        }
+    }
+}
+
+write-host "`nStarted creating content types......." -foregroundcolor green;
+
+AddColumnsToContentType $CTXML.SelectSingleNode("//ContentType[@Name='Regulation Reference Library CT']")
+
+$CTXML.ContentTypes.ContentType | ForEach-Object {
+            
+    if($_.Name -ne 'Regulation Reference Library CT')
+    {
+        AddColumnsToContentType $_
+    }
+}
+
+Write-Host "`n`n.......All content types created"(Get-Date).ToString() -foregroundcolor Cyan 
+
+
+¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬¬
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Fix lookup columns reference for lists/libraries at root site 
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+Write-Host "`n`nStarted processing root web" -foregroundcolor Green
+
+$Division =  $dRootCols | Where {$_.Title -eq "Division"}
+$BUProcesses =  $dRootCols | Where {$_.Title -eq "Business Processes"}
+$BUs =  $dRootCols | Where {$_.Title -eq "Business Units"}
+$Divisions =  $dRootCols | Where {$_.Title -eq "Divisions"}
+$BU =  $dRootCols | Where {$_.Title -eq "Business Unit"}
+$SecPM = $dRootCols | Where {$_.Title -eq "Sections Of Proc Manuals"}
+Write-Host "`nObject created for all lookup fields" -foregroundcolor Green
+
+Write-Host "Started processing list 'All Business Units'" -foregroundcolor Green
+$rootDivision = $allBUUnits.Fields.GetByTitle("Division");
+$rootBUProcesses = $allBUUnits.Fields.GetByTitle("Business Processes");
+
+$dRootCtx.Load($rootDivision)
+$dRootCtx.Load($rootBUProcesses)
+
+try  
+{
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Fix_RootLookUpsInSPLists.txt -Append;
+}
+
+$rootDivision.SchemaXml = $Division.SchemaXml
+$rootBUProcesses.SchemaXml = $BUProcesses.SchemaXml
+$rootDivision.Update()
+$rootBUProcesses.Update()
+
+try  {
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Fix_RootLookUpsInSPLists.txt -Append;
+}
+Write-Host "...........added Division, Business Processes" -foregroundcolor Yellow
+
+Write-Host "`nStarted processing list 'All Divisions'" -foregroundcolor Green
+$rootBUs = $allDivisions.Fields.GetByTitle("Business Units");
+$dRootCtx.Load($rootBUs)
+
+try  {
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Fix_RootLookUpsInSPLists.txt -Append;
+}
+
+$rootBUs.SchemaXml = $BUs.SchemaXml
+$rootBUs.Update()
+try  {
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Fix_RootLookUpsInSPLists.txt -Append;
+}
+Write-Host "...........added Business Units" -foregroundcolor Yellow
+
+Write-Host "`nStarted processing 'Procedural Manual - Sections'" -foregroundcolor Green
+$rootDivisons = $PMSecs.Fields.GetByTitle("Divisions");
+$rootBU = $PMSecs.Fields.GetByTitle("Business Unit");
+$dRootCtx.Load($rootDivisons)
+$dRootCtx.Load($rootBU)
+
+try  {
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Fix_RootLookUpsInSPLists.txt -Append;
+}
+
+$rootDivisons.SchemaXml = $Divisions.SchemaXml
+$rootBU.SchemaXml = $BU.SchemaXml
+
+$rootDivisons.Update()
+$rootBU.Update()
+
+try  {
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+}
+catch{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Fix_RootLookUpsInSPLists.txt -Append;
+}
+
+Write-Host "References are updated for all lookups fiels at root site" -foregroundcolor Yellow 
+
+
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Fix lookup columns reference for lists/libraries at Reference Library sub site
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+Write-Host "`n`nStarted processing RRL Web" -foregroundcolor Green
+
+#$dRrlUrl = $config.NYCERS.dstRootSiteURL + "/Compliance/RRL";
+#$dRrlCtx = New-Object Microsoft.SharePoint.Client.ClientContext($dRrlUrl)
+#$dRrlCtx.Credentials = $sCredentials
+
+#$rrlWeb = $dRrlCtx.Web
+$RRLContentTypes = $dRrlWeb.AvailableContentTypes
+
+$dRootCtx.Load($dRrlWeb)
+$dRootCtx.Load($dRrlWeb.Lists)    
+$dRootCtx.Load($RRLContentTypes)
+$dRootCtx.ExecuteQuery()
+
+start-sleep -s $ReqDelay;
+
+Write-Host "`nStarted processing list 'Directive Survey'" -foregroundcolor Green
+$DirectiveSurvey = $dRrlWeb.Lists.GetByTitle("Directive Survey");
+$dRootCtx.Load($DirectiveSurvey)
+$dRootCtx.Load($DirectiveSurvey.Fields)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$tBUs = $DirectiveSurvey.Fields.GetByTitle("Business Units")
+$tDivisions = $DirectiveSurvey.Fields.GetByTitle("Divisions")
+$tSecPM = $DirectiveSurvey.Fields.GetByTitle("Sections Of Proc Manuals")
+
+$dRootCtx.Load($tBUs)
+$dRootCtx.Load($tDivisions)
+$dRootCtx.Load($tSecPM)
+$dRootCtx.ExecuteQuery()
+start-sleep -s $ReqDelay;
+
+$tBUs.SchemaXml = $BUs.SchemaXml
+$tDivisions.SchemaXml = $Divisions.SchemaXml
+$tSecPM.SchemaXml = $SecPM.SchemaXml
+$tBUs.Update()
+$tDivisions.Update()
+$tSecPM.Update()
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+Write-Host "...........reference fixed for Divisions, Business Units, Sections Of Proc Manuals" -foregroundcolor Yellow
+
+Write-Host "`nStarted processing list 'Validation Form'" -foregroundcolor Green
+$ValidationForm = $dRrlWeb.Lists.GetByTitle("Validation Form");    
+$dRootCtx.Load($ValidationForm)
+$dRootCtx.Load($ValidationForm.Fields)
+$dRootCtx.ExecuteQuery()
+start-sleep -s $ReqDelay;
+
+$tBU = $ValidationForm.Fields.GetByTitle("Business Unit")
+$tDivision = $ValidationForm.Fields.GetByTitle("Division")
+
+$dRootCtx.Load($tBU)
+$dRootCtx.Load($tDivision)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$tBU.SchemaXml = $BU.SchemaXml
+$tDivision.SchemaXml = $Division.SchemaXml
+$tBU.Update()
+$tDivision.Update()
+$dRootCtx.ExecuteQuery()
+start-sleep -s $ReqDelay;
+
+Write-Host "...........reference fixed for Business Unit, Division" -foregroundcolor Yellow
+
+Write-Host "`nAdding content type to Documents library" -foregroundcolor Green
+$Documents = $dRrlWeb.Lists.GetByTitle("Documents")
+$dRootCtx.Load($Documents)
+$dRootCtx.Load($Documents.ContentTypes)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$docRrlCt = $RRLContentTypes | where { $_.Name -eq 'Regulation Reference Library CT' } 
+$docBrdCt = $RRLContentTypes | where { $_.Name -eq 'Board Rule Document' } 
+    
+$Documents.ContentTypesEnabled = $true
+$addList = $Documents.ContentTypes.AddExistingContentType($docRrlCt)
+$addList = $Documents.ContentTypes.AddExistingContentType($docBrdCt)
+$Documents.Update()
+$dRootCtx.Load($docRrlCt)
+$dRootCtx.Load($Documents.RootFolder)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+#$result = New-Object System.Collections.Generic.List[Microsoft.SharePoint.Client.ContentTypeId]
+#$result.Add($docRrlCt.Id)
+
+#$Documents.RootFolder.UniqueContentTypeOrder = $result
+#$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+Write-Host "...........Added content type Regulation Reference Library CT and Board Rule Document" -foregroundcolor Yellow
+Write-Host "Fields & Content Types are configured for Reference Library" -foregroundcolor Green 
+
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create SharePoint groups
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$csvFilePath = ".\Employees.csv";
+
+function Add-UsersToSPGroup($spGroup, $lstUsers)
+{
+    try 
+    {         
+        #Getting the SharePoint Groups for the site
+        $spoGroups = $dRootCtx.Web.SiteGroups
+        $dRootCtx.Load($spoGroups)
+
+        #Getting the specific SharePoint Group where we want to add the user 
+        $spoGroup = $spoGroups.GetByName($spGroup); 
+        $dRootCtx.Load($spoGroup)
+        
+        $lstUsers.split(";") | ForEach {
+            #Write-Host "$_ is a token"            
+            $spoUser = $dRootCtx.Web.EnsureUser($_) 
+            $dRootCtx.Load($spoUser) 
+            $spoUserToAdd = $spoGroup.Users.AddUser($spoUser) 
+            $dRootCtx.Load($spoUserToAdd)
+            
+            try  { 
+                $dRootCtx.ExecuteQuery()
+            }
+            catch{
+                echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateSPOGroups.txt -Append;
+            }
+
+            Write-Host "...........added '$_'" -foregroundcolor Yellow
+            start-sleep -Seconds $ReqDelay;
+        }
+    } 
+    catch [System.Exception] 
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        Write-Host -f red $_.Exception.ToString()    
+    }     
+}
+
+function Create-SPO-Groups($spGroupName, $lstUsers)
+{
+    try 
+    {
+        #Root Web Site 
+        $spoRootWebSite = $dRootCtx.Web 
+
+        #Object for creating a new SPO Group 
+        $spoGroupCreationInfo = New-Object Microsoft.SharePoint.Client.GroupCreationInformation 
+        $spoGroupCreationInfo.Title = $spGroupName
+        $spoGroupCreationInfo.Description = $spGroupName
+        $spoGroup = $spoRootWebSite.SiteGroups.Add($spoGroupCreationInfo)
+        $spoGroup.OnlyAllowMembersViewMembership = $false
+        $spoGroup.Update()
+
+        try  {
+            $dRootCtx.Load($spoGroup)
+            $dRootCtx.Load($dRootCtx.Web.RoleDefinitions);
+            $dRootCtx.Load($dRootCtx.Web.RoleAssignments);
+            $dRootCtx.ExecuteQuery()
+        }
+        catch{
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateSPOGroups.txt -Append;
+        }
+         
+        Write-Host "`nSP Group '$spGroupName' created" -foregroundcolor Green
+
+        start-sleep -Seconds $ReqDelay;
+
+        #new code-------------------------------------------------------------------------------------------------
+        $roleType = $spoRootWebSite.RoleDefinitions.GetByType([Microsoft.SharePoint.Client.RoleType]::Reader)
+        $roleDef = New-Object Microsoft.SharePoint.Client.RoleDefinitionBindingCollection($dRootCtx);
+        $dRootCtx.Load($roleType);
+        $dRootCtx.Load($roleDef);      
+        $dRootCtx.ExecuteQuery();
+        start-sleep -S $ReqDelay;
+
+        $roleDef.Add($roleType);
+        $dRootCtx.Load($dRootCtx.Web.RoleAssignments.Add($spoGroup, $roleDef));        
+        $dRootCtx.ExecuteQuery();
+        start-sleep -S $ReqDelay;
+        #---------------------------------------------------------------------------------------------------------
+
+        if($lstUsers.Trim().Length -gt 0)  {
+            Add-UsersToSPGroup -spGroup $spGroupName -lstUsers $lstUsers
+        }
+    } 
+    catch [System.Exception] 
+    { 
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        Write-Host -f red $_.Exception.ToString()    
+    }
+}
+
+function Create-SPGroups-AddUsers($lstOfSPGroupsAndUsers)
+{
+    $csv = Import-Csv $lstOfSPGroupsAndUsers
+    
+    foreach ($line in $csv)
+    {
+        Create-SPO-Groups -spGroupName $line.SPGroups -lstUsers $line.Users
+    }
+}
+
+Create-SPGroups-AddUsers -lstOfSPGroupsAndUsers $csvFilePath 
+
+
+
+
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create space/folder for all Business Units in division
+#
+# Author: Ajay Joshi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+#load the List
+$mainList = $dRootCtx.Web.Lists.GetByTitle("All Divisions");
+$dRootCtx.Load($mainList);
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay;
+
+$itmCollection = $mainList.GetItems([Microsoft.SharePoint.Client.CamlQuery]::CreateAllItemsQuery())
+$dRootCtx.Load($itmCollection)
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay;
+
+foreach($itm in $itmCollection)
+{
+    try
+    {
+        if($itm["SubSiteURL"].Length -ne 0)
+        {
+            Write-Host "`nStarted processing "$itm["SubSiteURL"] -foregroundcolor Green
+
+            #Getting context of new Division level site
+            $dSiteUrl = $config.NYCERS.dstRootSiteURL +  $itm["SubSiteURL"];
+            $dSiteCtx = New-Object Microsoft.SharePoint.Client.ClientContext($dSiteUrl)
+            $dSiteCtx.Credentials = $sCredentials
+            $sRrlWeb = $dSiteCtx.Web
+            $dSiteCtx.Load($sRrlWeb)
+            $dSiteCtx.Load($dSiteCtx.Web.SiteGroups);
+            $dSiteCtx.Load($sRrlWeb.RoleDefinitions);
+            $dSiteCtx.ExecuteQuery();
+            start-sleep -S $ReqDelay;
+
+            $sRrlWeb.ResetRoleInheritance();
+            $dSiteCtx.Load($sRrlWeb);
+            $dSiteCtx.ExecuteQuery();
+            start-sleep -S $ReqDelay;
+            
+            $dList = $sRrlWeb.Lists.GetByTitle("Documents");
+            $pmList = $sRrlWeb.Lists.GetByTitle("Procedural Manual");
+            #$sharedRepoList = $sRrlWeb.Lists.GetByTitle("Shared Repository");
+
+            $dSiteCtx.Load($dList);
+            $dSiteCtx.Load($pmList);
+            #$dSiteCtx.Load($sharedRepoList);
+            $dSiteCtx.Load($dList.RootFolder.Folders);
+            $dSiteCtx.Load($pmList.RootFolder.Folders);
+            #$dSiteCtx.Load($sharedRepoList.RootFolder.Folders);
+            $dSiteCtx.ExecuteQuery();
+            start-sleep -S $ReqDelay;
+
+            #Create Private & Public folders
+            $Private1 = $dList.RootFolder.Folders.Add("Division Only");
+            $Public1 =  $dList.RootFolder.Folders.Add("Shared");
+            $Private2 = $pmList.RootFolder.Folders.Add("Division Only");
+            $Public2 =  $pmList.RootFolder.Folders.Add("Shared");
+
+            $dSiteCtx.Load($Private1);
+            $dSiteCtx.Load($Public1);
+            $dSiteCtx.Load($Private2);
+            $dSiteCtx.Load($Public2);
+            $dSiteCtx.ExecuteQuery();
+            start-sleep -s $ReqDelay;
+
+            # Loop through BU's to create folder for their Division
+            $mvLookup = [Microsoft.SharePoint.Client.FieldLookupValue[]] $itm["BusinessUnits"]      
+ 
+            foreach ( $itm in $mvLookup)
+            {
+                $folder1 = $Private1.Folders.Add($itm.LookupValue);
+                $folder2 = $Public1.Folders.Add($itm.LookupValue);
+                $folder3 = $Private2.Folders.Add($itm.LookupValue);
+                $folder4 = $Public2.Folders.Add($itm.LookupValue);
+                
+                $dSiteCtx.Load($folder1);
+                $dSiteCtx.Load($folder2);
+                $dSiteCtx.Load($folder3);
+                $dSiteCtx.Load($folder4);                
+                $dSiteCtx.ExecuteQuery();
+                Write-Host "...........folder created: "$itm.LookupValue -foregroundcolor Yellow
+                start-sleep -S $ReqDelay;
+
+                $folder1.ListItemAllFields.BreakRoleInheritance($false,$false);
+                #$folder2.ListItemAllFields.BreakRoleInheritance($true,$false);
+                $folder3.ListItemAllFields.BreakRoleInheritance($false,$false);
+                #$folder4.ListItemAllFields.BreakRoleInheritance($true,$false);
+                
+                $dSiteCtx.Load($folder1);
+                #$dSiteCtx.Load($folder1.ListItemAllFields);
+                #$dSiteCtx.Load($folder1.ListItemAllFields.RoleAssignments);
+                #$dSiteCtx.Load($folder2);
+                #$dSiteCtx.Load($folder2.ListItemAllFields.RoleAssignments);
+                $dSiteCtx.Load($folder3);
+                #$dSiteCtx.Load($folder3.ListItemAllFields.RoleAssignments);
+                #$dSiteCtx.Load($folder4);
+                #$dSiteCtx.Load($folder4.ListItemAllFields.RoleAssignments);
+                $dSiteCtx.ExecuteQuery();
+                start-sleep -S $ReqDelay;
+
+                $roleType = $sRrlWeb.RoleDefinitions.GetByType([Microsoft.SharePoint.Client.RoleType]::Editor)
+                $roleDef = New-Object Microsoft.SharePoint.Client.RoleDefinitionBindingCollection($dSiteCtx);
+                $dSiteCtx.Load($roleType);
+                $dSiteCtx.Load($roleDef);
+                $dSiteCtx.ExecuteQuery();
+                start-sleep -S $ReqDelay;
+
+                $roleDef.Add($roleType);
+                
+                $grpName = "BU_" + $dSiteCtx.Web.Title + "_" + $itm.LookupValue;
+                $user = $dSiteCtx.Web.SiteGroups | where { $_.title -eq $grpName };
+
+                $dSiteCtx.Load($folder1.ListItemAllFields.RoleAssignments.Add($user, $roleDef));
+                $folder1.Update();
+                #$dSiteCtx.Load($folder2.ListItemAllFields.RoleAssignments.Add($user, $roleDef));
+                #$folder2.Update();
+                $dSiteCtx.Load($folder3.ListItemAllFields.RoleAssignments.Add($user, $roleDef));
+                $folder3.Update();
+                #$dSiteCtx.Load($folder4.ListItemAllFields.RoleAssignments.Add($user, $roleDef));
+                #$folder4.Update();
+                $dSiteCtx.ExecuteQuery();
+                start-sleep -s $ReqDelay;
+            }
+        }
+    }
+    Catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateBUFolders_DivisionSubSite.txt -Append;
+    }
+} 
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create required views for document libraries at Reference Library sub site
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$sRrlWeb = $sRootCtx.Site.OpenWeb($sRootCtx.Web.ServerRelativeUrl + "/compliance/RRL")
+$sRootCtx.Load($sRrlWeb)
+$sRootCtx.Load($sRrlWeb.RootFolder)
+$sRootCtx.Load($sRrlWeb.Lists)
+$sRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$srcFields = $sRrlWeb.Fields
+$sRootCtx.Load($srcFields)
+$sRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$dDeactReasons = $dRrlWeb.Lists.GetByTitle("Deactivation Reasons")
+$dDocViews = $Documents.Views;
+$dRrlFields = $dRrlWeb.Fields;
+$dRootCtx.load($dDeactReasons);
+$dRootCtx.load($dDocViews);
+$dRootCtx.load($dRrlFields);
+$dRootCtx.load($Documents.Fields);
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay;
+
+#Adding site columns to RRL Web
+foreach($srcField in $srcFields)
+{
+    if($srcField.Group -ne "_Hidden") 
+    {
+        [xml]$sColXML = $srcField.SchemaXml
+        $dd = $sColXML.DocumentElement
+        $dd.RemoveAttribute("Version")
+
+        if($srcField.Title -eq "Deactivation Reasons")   {
+            $sColXML.DocumentElement.SetAttribute("WebId", "{" + $dRrlWeb.Id.ToString() + "}");
+            $sColXML.DocumentElement.SetAttribute("SourceID", "{" + $dRrlWeb.Id.ToString() + "}");
+            $sColXML.DocumentElement.SetAttribute("List", "{" + $dDeactReasons.Id.ToString() + "}");
+        }
+        
+        $dRrlFields.AddFieldAsXml($sColXML.OuterXml.ToString(), $true, [Microsoft.SharePoint.Client.AddFieldOptions]::AddFieldToDefaultView) > $null
+        $dRootCtx.Load($dRrlFields)
+        
+        try  {
+            $dRootCtx.ExecuteQuery()
+            start-sleep -S $ReqDelay;
+        }
+        catch{
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateViews_RRLWeb.txt -Append;
+        }
+    }
+}
+
+#Adding site columns to document library
+$fldDectReason = $dRrlFields | Where {$_.Title -eq "Deactivation Reasons"}
+$fldOtherDectReason = $dRrlFields | Where {$_.Title -eq "Other Deactivation Reasons"}
+$Documents.Fields.Add($fldDectReason) > $null
+$Documents.Fields.Add($fldOtherDectReason) > $null
+$Documents.Update()
+$dRootCtx.load($Documents.Fields);
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay;
+
+$sDocuments = $sRrlWeb.Lists.GetByTitle("Documents")
+$sDocViews = $sDocuments.Views
+$sRootCtx.load($sDocViews)
+$sRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+#Adding views to document library
+foreach($docView in $sDocViews)
+{
+    if($docView.Title -ne "All Documents" -and $docView.Title -ne "All Items" -and !$docView.Hidden)
+    {
+        $sRootCtx.Load($docView.ViewFields)
+        $sRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        if($docView.ViewFields.Count -gt 0)
+        {
+            $viewInfo = New-Object Microsoft.SharePoint.Client.ViewCreationInformation
+            $viewInfo.Title = $docView.Title;
+            $viewInfo.SetAsDefaultView = $docView.DefaultView;
+            $viewInfo.Query = $docView.ViewQuery;
+            $viewInfo.ViewTypeKind = [Microsoft.SharePoint.Client.ViewType]::None;
+            
+            $arrViewField = @();
+            foreach($viewField in $docView.ViewFields) 
+            {
+                $arrViewField += $viewField.ToString().Replace("BusinessProcesses0","BusinessProcesses");
+            }
+
+            $viewInfo.ViewFields = $arrViewField;
+        
+            $viewInfo.RowLimit = $docView.RowLimit;
+            $docViews = $dDocViews.Add($viewInfo)
+            $dRootCtx.load($docViews)
+
+            try  {
+                $dRootCtx.ExecuteQuery()
+                start-sleep -S $ReqDelay;
+            }
+            catch{
+                Write-Host $_.Exception.Message -ForegroundColor Red;
+                echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\CreateViews_RRLWeb.txt -Append;
+            }
+
+            write-host "..............View created "$docView.Title
+        }
+    }
+}
+
+Write-Host "`n`nRRL Web configuration completed "(Get-Date).ToString() -foregroundcolor Cyan 
+
+
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Upload solution files for workflows, themes and web parts to solution gallery
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+#Create Workflow history list
+Write-Host "`nStarted uploading workflow solutions" -foregroundcolor Green
+
+$ListInfo = New-Object Microsoft.SharePoint.Client.ListCreationInformation
+$ListInfo.Title = "Workflow History"
+$ListInfo.TemplateType = "140"
+$WorkflowHistory = $dRrlWeb.Lists.Add($ListInfo)
+$WorkflowHistory.Description = $ListTitle
+$WorkflowHistory.Update()
+$dRootCtx.Load($WorkflowHistory)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+#Activate Workflow solutions
+Get-ChildItem ".\Root Site\WorkflowSolutions" -Filter *.wsp | Foreach-Object {
+
+    $WspFileName = $_.Name
+
+    try  
+    {        
+        if($WspFileName.StartsWith("RRL"))
+        {
+            Write-Host "...........activating "$WspFileName -foregroundcolor Yellow
+            Activate-Solution -sSolFile $WspFileName
+            Write-Host "...........activated "$WspFileName -foregroundcolor Yellow
+        }
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Import-RRLWorkflows.txt -Append;
+    }
+}
+
+#Apply master page at root site
+$masterPageUrl = $dRootCtx.Web.ServerRelativeUrl + "/_catalogs/masterpage/O365/Home.master";
+$dRootCtx.Web.CustomMasterUrl = $masterPageUrl;
+$dRootCtx.Web.MasterUrl = $masterPageUrl;
+$dRootCtx.Web.Update();
+$dRootCtx.Load($dRootCtx.Web);
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay;
+
+#Apply master page to all division sub sites
+$masterPageUrl = $dRootCtx.Web.ServerRelativeUrl + "/_catalogs/masterpage/O365/SideBar.master";
+
+function Change-MasterPageSubSites($tSubWeb)
+{
+    $tSubWeb.CustomMasterUrl = $masterPageUrl;
+    $tSubWeb.MasterUrl = $masterPageUrl;
+    $tSubWeb.Update();
+    $dRootCtx.Load($tSubWeb);
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $dRootCtx.Load($tSubWeb.Webs);
+    $dRootCtx.Load($tSubWeb);
+    $dRootCtx.ExecuteQuery()
+    start-sleep -s $ReqDelay;
+
+    foreach($tweb in $tSubWeb.Webs)
+    {
+        Write-Host "Processing Web: " $tweb.Url -foregroundcolor Green
+        Change-MasterPageSubSites -tSubWeb $tweb
+    }    
+}
+
+$dRootCtx.Load($dRootCtx.Web)
+$dRootCtx.Load($dRootCtx.Web.Webs)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$dRootCtx.Web.Webs | ForEach-Object { 
+    Write-Host "Processing Web: " $_.Url -foregroundcolor Green
+    Change-MasterPageSubSites -tSubWeb $_
+} 
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Update workflow subscription GUID in SharePoint list
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$assemblyPath = "$env:CommonProgramFiles\Microsoft Shared\Web Server Extensions\16\ISAPI\Microsoft.SharePoint.Client.WorkflowServices.dll"
+Add-Type -Path (Resolve-Path $assemblyPath)
+#[System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SharePoint.Client.WorkflowServices") > $null
+
+$RRLSurveyReminderFeatureId = [System.GUID]("b95dfb1e-289d-411d-987e-4c160c04f59f"); #b95dfb1e-289d-411d-987e-4c160c04f59f
+$RRLSurveyUpdatedFeatureId = [System.GUID]("01b44427-3dc6-41b0-8282-5bcbf993b504"); #01b44427-3dc6-41b0-8282-5bcbf993b504
+$RRLTasksReminderFeatureId = [System.GUID]("e1d1ee43-925b-424d-bb72-d42072c5a8fa"); #e1d1ee43-925b-424d-bb72-d42072c5a8fa
+$RRLWorkflowFeatureId = [System.GUID]("c13eb06d-5cee-44c4-aa7c-6532ca27c3f1");
+
+$WorkflowServicesManager = $null
+$WorkflowSubscriptionService = $null
+$WorkflowInstanceService = $null
+
+$WFSubList = $dRrlWeb.Lists.GetByTitle("Workflow Subscriptions")
+$dRootCtx.Load($WFSubList)
+$dRootCtx.Load($dRrlWeb.Features)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+Write-Host "`nStarted activating workflow features" -foregroundcolor Green
+Write-Host "...........activating feature 'RRL Survey Reminder'" -foregroundcolor Yellow
+$dRrlWeb.Features.Add($RRLSurveyReminderFeatureId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::Site) | Out-Null
+Write-Host "...........activating feature 'RRL Survey Updated'" -foregroundcolor Yellow
+$dRrlWeb.Features.Add($RRLSurveyUpdatedFeatureId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::Site) | Out-Null
+Write-Host "...........activating feature 'RRL Task Reminder'" -foregroundcolor Yellow
+$dRrlWeb.Features.Add($RRLTasksReminderFeatureId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::Site) | Out-Null
+Write-Host "...........activating feature 'RRL Workflow'" -foregroundcolor Yellow
+$dRrlWeb.Features.Add($RRLWorkflowFeatureId, $true, [Microsoft.SharePoint.Client.FeatureDefinitionScope]::Site) | Out-Null
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+function Update-WFSubscriptionList($listName)
+{
+    try  
+    {
+        $List = $dRrlWeb.Lists.GetByTitle($listName)
+        $dRootCtx.Load($List)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        # Get WorkflowAssociations with List
+        $WorkflowAssociations = $WorkflowSubscriptionService.EnumerateSubscriptionsByList($List.Id)
+        $dRootCtx.Load($WorkflowAssociations)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+ 
+        # Prepare Start Workflow Payload
+        $Dict = New-Object 'System.Collections.Generic.Dictionary[System.String,System.Object]'
+ 
+        foreach ($WflowSub in $WorkflowAssociations) 
+        {
+            Write-Host $WflowSub.Name $WflowSub.Id
+
+            $Query = New-Object Microsoft.SharePoint.Client.CamlQuery;
+            $Query.ViewXml = "<View><Query><Where><Eq><FieldRef Name='Title' /><Value Type='text'>" + $WflowSub.Name + "</Value></Eq></Where></Query></View>";
+            $ListItems = $WFSubList.GetItems($Query);
+
+            $dRootCtx.Load($ListItems)
+            $dRootCtx.ExecuteQuery()
+            start-sleep -S $ReqDelay;
+
+            foreach($item in $ListItems)
+            {
+                $tItem = $WFSubList.GetItemById($item.Id);
+                $tItem.set_item("SubscriptionId", $WflowSub.Id);
+
+                $tItem.Update();
+                $dRootCtx.Load($tItem);
+                $dRootCtx.ExecuteQuery();
+                start-sleep -S $ReqDelay;
+
+                break;
+            }            
+        }
+    }
+    catch{
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\UpdateWorkflowSubscriptionList.txt -Append;
+    }  
+}
+
+# Retrieve WorkflowService related objects
+$WorkflowServicesManager = New-Object Microsoft.SharePoint.Client.WorkflowServices.WorkflowServicesManager($dRootCtx, $dRrlWeb)
+$WorkflowSubscriptionService = $WorkflowServicesManager.GetWorkflowSubscriptionService()
+$WorkflowInstanceService = $WorkflowServicesManager.GetWorkflowInstanceService()
+$dRootCtx.Load($WorkflowServicesManager)
+$dRootCtx.Load($WorkflowSubscriptionService)
+$dRootCtx.Load($WorkflowInstanceService)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+Write-Host "`nStarted updating references of workflow subscriptions" -foregroundcolor Green
+Update-WFSubscriptionList -listName "Directive Survey"
+Update-WFSubscriptionList -listName "RRL Tasks"
+Write-Host "`n...........Updated all references of workflow subscriptions" -foregroundcolor Cyan 
+
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Configure search and global navigation settings for all site and sub sites
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/08/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+function Inherit-Navigation-For-Web($ctx, $web, $taxSession)
+{
+     try  
+     {
+         $ctx.Load($web)
+         $ctx.ExecuteQuery()
+         start-sleep -S $ReqDelay;
+     
+         if ($web.ID -eq $ctx.Site.RootWeb.ID)
+         {
+             Write-Host "    Skip root web" -foregroundcolor yellow
+         }
+         else
+         {
+             $navigationSettings = New-Object Microsoft.SharePoint.Client.Publishing.Navigation.WebNavigationSettings($ctx, $web)
+             $navigationSettings.GlobalNavigation.Source = [Microsoft.SharePoint.Client.Publishing.Navigation.StandardNavigationSource]::InheritFromParentWeb
+             #$navigationSettings.CurrentNavigation.Source = [Microsoft.SharePoint.Client.Publishing.Navigation.StandardNavigationSource]::InheritFromParentWeb
+             $navigationSettings.Update($taxSession)
+             
+             if($web.Title.ToLower() -ne "reference library")
+             {
+                Add-ContentTypeToList -ListName "Director's Memos" -targetWeb $web -ContentTypeName "Directors Memo"
+             }
+         }
+     
+         $web.AllProperties["__CurrentNavigationIncludeTypes"] = "0";
+         $web.AllProperties["__GlobalNavigationIncludeTypes"] = "0";
+         $web.Update()
+         $dRootCtx.Load($web.Webs)
+         $ctx.ExecuteQuery()
+
+         Write-Host "...........Global & Current navigation updated" -foregroundcolor Yellow
+
+         start-sleep -s $ReqDelay;
+          
+         $web.Webs | ForEach-Object { 
+            Write-Host "Processing Web: " $_.Url -foregroundcolor Green
+            Inherit-Navigation-For-Web $ctx $_ $taxSession 
+         }
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Configure_SearchScopes.txt -Append;
+    }
+}
+
+function Inherit-ParentSearchNavigation($objWeb, $ctx)
+{
+    try  
+    {
+        $ctx.Load($objWeb.AllProperties)
+        $ctx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        $objWeb.AllProperties["SRCH_SB_SET_WEB"] = '{"Inherit":true,"ResultsPageAddress":null,"ShowNavigation":true}'
+        $objWeb.AllProperties["SRCH_VERT_SET_WEB"] = '{"Inherit":true}'
+        $objWeb.Update()
+
+        $ctx.Load($objWeb.Webs);
+        $ctx.Load($objWeb);
+        $ctx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        Write-Host "...........Updated property bag SRCH_SB_SET_WEB: "$objWeb.AllProperties["SRCH_SB_SET_WEB"]
+        Write-Host "...........Updated property bag SRCH_VERT_SET_WEB: "$objWeb.AllProperties["SRCH_VERT_SET_WEB"]
+
+        foreach($tweb in $objWeb.Webs)
+        {
+            Write-Host "Processing Web: " $tweb.Url -foregroundcolor Green
+            Inherit-ParentSearchNavigation -objWeb $tweb -ctx $tweb.Context
+        }    
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Configure_SearchScopes.txt -Append;
+    }    
+}
+
+function Update-SearchScopes($objWeb, $ctx)
+{
+    $ctx.Load($objWeb.Navigation)
+    $ctx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $SrchNode = $objWeb.Navigation.GetNodeById(1040)    
+    $sNodes = $SrchNode.Children
+    $ctx.Load($SrchNode)
+    $ctx.Load($sNodes)
+    $ctx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+    
+    $nodeDocuments = New-Object Microsoft.SharePoint.Client.NavigationNodeCreationInformation
+    $nodeDocuments.Title = "Documents"
+    $nodeDocuments.Url = "https://nycers.sharepoint.com/search/Pages/documents.aspx?u=" + [System.Web.HttpUtility]::UrlEncode($dRootCtx.Web.Url)
+    $nodeDocuments.AsLastNode = $false
+    # IsExternal is really important or it tries to resolve the url and fails.
+    $nodeDocuments.IsExternal = $true
+    $ctx.Load($sNodes.Add($nodeDocuments))
+    $ctx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $ctx.Load($objWeb.Navigation)
+    $ctx.Load($objWeb.Webs);
+    $ctx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $ctx.Load($SrchNode)
+    $ctx.Load($sNodes)
+    $ctx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    foreach($nd in $sNodes)
+    {
+        try  
+        {
+            if($nd.Url.Contains("?u=") -eq $false)
+            {
+                $nd.Url = $nd.Url + "?u=" + [System.Web.HttpUtility]::UrlEncode($dRootCtx.Web.Url)
+                $nd.Update();
+                $SrchNode.Update()
+                $ctx.Load($nd)
+                $ctx.ExecuteQuery()
+
+                Write-Host "...........Updated node: " $nd.Title -ForegroundColor Yellow;
+
+                start-sleep -s $ReqDelay;
+            }
+        }
+        catch 
+        {
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Configure_SearchScopes.txt -Append;
+        }
+    }
+
+    foreach($tweb in $objWeb.Webs)
+    {
+        Write-Host "Processing Web: " $tweb.Url -foregroundcolor Green
+        Inherit-ParentSearchNavigation -objWeb $tweb -ctx $tweb.Context
+    }
+} 
+
+$taxSession = [Microsoft.SharePoint.Client.Taxonomy.TaxonomySession]::GetTaxonomySession($dRootCtx)
+
+$dRootCtx.Load($dRootCtx.Web)
+$dRootCtx.Load($dRootCtx.Web.Webs)
+$dRootCtx.Load($dRootCtx.Site)
+$dRootCtx.Load($dRootCtx.Site.RootWeb)
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+#$dRootCtx.Web.Webs | ForEach-Object { 
+Write-Host "Processing Web: " $dRootCtx.Web.Url -foregroundcolor Green
+Inherit-Navigation-For-Web $dRootCtx $dRootCtx.Web $taxSession 
+#}
+
+Write-Host "Processing Web: " $dRootCtx.Web.Url -foregroundcolor Green
+Update-SearchScopes -objWeb $dRootCtx.Web -ctx $dRootCtx 
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create SharePoint groups
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/19/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$targetLocation = "Style Library"
+$dstWeb = $dRootCtx.Web;
+$Counter = 0;
+
+
+function Read-SourceFolder($sFolder)
+{
+    foreach ($file in (Get-ChildItem  -Path $sFolder -Attributes Directory))
+    {
+        $tFolder = $file.FullName
+
+        Upload-UI-Files -sFolder $tFolder -dstLocation $tFolder.Replace($srcFolder + "\", "").Replace("\", "/")
+        Read-SourceFolder -sFolder $tFolder
+    }
+}
+
+function Upload-UI-Files($sFolder, $dstLocation)
+{
+    Write-Host "`n`nStarted uploading files from "$sFolder -ForegroundColor Green
+    
+    $dFolder = $dstWeb.GetFolderByServerRelativeUrl($dstWeb.ServerRelativeUrl + "/" + $targetLocation)
+
+    if($dstLocation.Contains("/"))
+    {
+        $dFolder = $dstWeb.GetFolderByServerRelativeUrl($dstWeb.ServerRelativeUrl + "/" + $targetLocation + "/" + $dstLocation.Substring(0, $dstLocation.LastIndexOf("/")))
+    }
+
+    $dRootCtx.Load($dFolder)
+    $dRootCtx.Load($dFolder.Folders)
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $newFolder = $dFolder.Folders.Add($dstLocation.Substring($dstLocation.LastIndexOf("/") + 1));
+    $dRootCtx.Load($newFolder)
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    Write-Host "...........created folder "$dstLocation.Substring($dstLocation.LastIndexOf("/") + 1) -foregroundcolor Yellow
+
+    foreach ($file in (Get-ChildItem -File -Path $sFolder))
+    {
+        Try
+        {
+            $dstFilePath = $dstWeb.Url + '/' + $targetLocation + (($file.FullName.ToLower()).Replace($srcFolder.ToLower(),'')).Replace('\','/')
+
+            if($file.Name.ToLower() -eq "o365.css" -or $file.Name.ToLower() -eq "SideBar.master" -or $file.Name.ToLower() -eq "home.master")
+            {
+                $dstSrvRelURL = $dstWeb.ServerRelativeUrl + '/' + $targetLocation + (($file.FullName.ToLower()).Replace($srcFolder.ToLower(),'')).Replace('\','/');
+
+                $tFile = $dRootCtx.Web.GetFileByServerRelativeUrl($dstSrvRelURL)
+                $dRootCtx.Load($tFile)
+                $dRootCtx.ExecuteQuery()
+                start-sleep -S $ReqDelay;
+
+                #Checkout the document
+                $tFile.CheckOut()
+                $dRootCtx.ExecuteQuery()
+                start-sleep -S $ReqDelay;
+            }                
+    
+            $FileStream = New-Object IO.FileStream($File.FullName,[System.IO.FileMode]::Open)
+    
+            $FileCreationInfo = New-Object Microsoft.SharePoint.Client.FileCreationInformation
+            $FileCreationInfo.Overwrite = $true
+            $FileCreationInfo.ContentStream = $FileStream
+            $FileCreationInfo.URL = $dstFilePath
+    
+            $Upload = $newFolder.Files.Add($FileCreationInfo)
+            $listItem = $upload.ListItemAllFields
+            $listItem['Title']=($file.Name).split('.')[0]
+    
+            Write-Host "...............Uploading file $dstFilePath" -foregroundcolor Cyan
+            $listItem.update()
+            $dRootCtx.Load($Upload)
+            $dRootCtx.ExecuteQuery()
+            start-sleep -S $ReqDelay;
+
+            if($Upload.CheckOutType -ne [Microsoft.SharePoint.Client.CheckOutType]::None)
+            {
+                $Upload.CheckIn("", [Microsoft.SharePoint.Client.CheckinType]::MajorCheckIn)
+                $dRootCtx.ExecuteQuery()
+                start-sleep -S $ReqDelay;
+            }            
+        }
+        Catch 
+        {
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Upload_UI_Artefacts.txt -Append;
+            echo "File -> " $file.FullName | Out-File -FilePath .\Logs\FailedToUploadCheckIn.txt -Append;
+        }
+    }
+}
+
+$srcFolder = (get-location).Path + "\Root Site\Style Library"
+Write-Host "Started file upload batch process for Style Library..." $dRootCtx.Web.Url -foregroundcolor Green
+Read-SourceFolder -sFolder $srcFolder
+Write-Host "Completed file upload batch process for Style Library..." $dRootCtx.Web.Url -foregroundcolor Green
+
+$targetLocation = "PublishingImages"
+$srcFolder = (get-location).Path + "\Root Site\PublishingImages"
+Write-Host "Started file upload batch process for Image library..." $dRootCtx.Web.Url -foregroundcolor Green
+Read-SourceFolder -sFolder $srcFolder
+Write-Host "Completed file upload batch process for Image library..." $dRootCtx.Web.Url -foregroundcolor Green
+
+#processing home.master
+$dstHomePath = (get-location).Path + "\Root Site\Masterpage\O365\home.master";
+$fileVFullName = (get-location).Path + "\Root Site\Masterpage\home.tmp";
+$tmpContent = (Get-Content $fileVFullName).replace($sRootWeb.Url, $dRootWeb.Url)
+$tmpContent.replace($sRootWeb.ServerRelativeUrl, $dRootWeb.ServerRelativeUrl) | Set-Content $dstHomePath
+$tmpContent = ""
+
+#processing SideBar.master
+$dstHomePath = (get-location).Path + "\Root Site\Masterpage\O365\SideBar.master";
+$fileVFullName = (get-location).Path + "\Root Site\Masterpage\SideBar.tmp";
+$tmpContent = (Get-Content $fileVFullName).replace($sRootWeb.Url, $dRootWeb.Url)
+$tmpContent.replace($sRootWeb.ServerRelativeUrl, $dRootWeb.ServerRelativeUrl) | Set-Content $dstHomePath
+$tmpContent = ""
+
+$targetLocation = "_catalogs/masterpage";
+$srcFolder = (get-location).Path + "\Root Site\Masterpage"
+
+Write-Host "Started uploading master pages..." $dRootCtx.Web.Url -foregroundcolor Green
+Read-SourceFolder -sFolder $srcFolder
+Write-Host "Completed uploading master pages..." $dRootCtx.Web.Url -foregroundcolor Green
+
+#Upload RRL files
+$dRootCtx.Load($dRrlWeb)
+$dRootCtx.Load($dRrlWeb.RootFolder)
+$dRootCtx.ExecuteQuery()
+start-sleep -s $ReqDelay;
+
+$dstWeb = $dRrlWeb
+$targetLocation = "SiteAssets"
+$srcFolder = (get-location).Path + "\RRL\SiteAssets"
+Write-Host "Started file upload batch process for SiteAssets..." $dRootCtx.Web.Url -foregroundcolor Green
+Read-SourceFolder -sFolder $srcFolder
+Write-Host "Completed file upload batch process for SiteAssets..." $dRootCtx.Web.Url -foregroundcolor Green
+
+#Upload RRL site pages
+Write-Host "...........Processing site pages" -foregroundcolor Yellow
+$tmpContent = ""
+
+Get-ChildItem ".\RRL\SitePages" -Filter *.tmp | Foreach-Object {
+
+    $WspFileName = $_.Name
+    $fileVFullName = $_.FullName
+
+    try  
+    {
+        $dstHomePath = (get-location).Path + "\RRL\SitePages\" + $WspFileName.Substring(0, $WspFileName.IndexOf(".")) + ".aspx";        
+
+        $tmpContent = (Get-Content $fileVFullName).replace($sRootWeb.Url, $dRootWeb.Url)
+        $tmpContent.replace($sRootWeb.ServerRelativeUrl, $dRootWeb.ServerRelativeUrl) | Set-Content $dstHomePath
+        $tmpContent = ""
+    }
+    catch
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\Import-RRLWorkflows.txt -Append;
+    }
+}
+
+Write-Host "...........Processed site pages" -foregroundcolor Yellow
+Write-Host "...........started uploading site pages" -foregroundcolor Yellow
+
+Upload-Files -destGallery "Site Pages" -dstWeb $dRrlWeb -dstFolder $null -srcPath ".\RRL\SitePages" -fileFilter "*.aspx"
+
+#Set division sub site home page
+$dRrlWeb.RootFolder.WelcomePage = "SitePages/Dashboard.aspx"
+$dRrlWeb.RootFolder.Update();
+$dRootCtx.ExecuteQuery()
+start-sleep -S $ReqDelay;
+
+$dRrlWeb.ResetRoleInheritance();
+$dRootCtx.Load($dRrlWeb);
+$dRootCtx.ExecuteQuery();
+start-sleep -S $ReqDelay; 
+
+
+
+
+ 
+#---------------------------------------------------------------------------------------------------------------------------
+# Description:
+# Create SharePoint groups
+#
+# Author: Harshadbhai Bhoi
+#
+#
+#
+#
+# Last modified: 01/19/2018
+#---------------------------------------------------------------------------------------------------------------------------
+
+$sTermSetName = "NyceConnectNavigation"
+
+function ExportnImport-TermsRecursively($cTerms, $dTermSet)
+{
+    Try
+    {
+        foreach($Term in $cTerms)
+        {
+            $dTerm1 = $dTermSet.CreateTerm($Term.Name, [Microsoft.SharePoint.Client.Publishing.Navigation.NavigationLinkType]::SimpleLink, [guid]::NewGuid());
+            $strURL = $Term.get_localCustomProperties()._Sys_Nav_SimpleLinkUrl;
+
+            if(![String]::IsNullOrEmpty($strURL)) 
+            {
+                if($strURL.StartsWith($sRootCtx.Web.ServerRelativeUrl))
+                {
+                    $strURL = $strURL.Replace($sRootCtx.Web.ServerRelativeUrl, $dRootCtx.Web.ServerRelativeUrl)
+                }
+            }
+
+            $dTerm1.SimpleLinkUrl = $strURL;
+            $dRootCtx.Load($dTerm1);
+            $dTerm1.GetTaxonomyTerm().TermStore.CommitAll();
+            $dRootCtx.ExecuteQuery();
+            start-sleep -S $ReqDelay;
+
+            $sRootCtx.Load($Term.Terms)
+            $sRootCtx.ExecuteQuery()
+            Write-Host "...........Added term "$Term.Name -ForegroundColor Yellow
+
+            start-sleep -s $ReqDelay;
+
+            if($Term.Terms.Count -gt 0)
+            {
+                ExportnImport-TermsRecursively -cTerms $Term.Terms -dTerm $dTerm1
+            }
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ImportExport_ManagedNavigation.txt -Append;
+    }
+}
+
+function Set-ManagedNavigation()
+{
+    Try
+    {
+        #Update global navigation
+        $webNavigationSettings = New-Object Microsoft.SharePoint.Client.Publishing.Navigation.WebNavigationSettings($dRootCtx, $dRootCtx.Web);
+        $dRootCtx.Load($webNavigationSettings)
+        $dRootCtx.Load($webNavigationSettings.GlobalNavigation)
+        #$dRootCtx.Load($webNavigationSettings.CurrentNavigation)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        $webNavigationSettings.GlobalNavigation.TermStoreId = $dTermStore.Id
+        $webNavigationSettings.GlobalNavigation.TermSetId = $dTermSet.Id 
+        $webNavigationSettings.GlobalNavigation.Source = "TaxonomyProvider"
+
+        $webNavigationSettings.Update($dTaxoSession);
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+    }
+    Catch 
+    {
+        Write-Host $_.Exception.Message -ForegroundColor Red;
+        echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ImportExport_ManagedNavigation.txt -Append;
+    }
+}
+
+Try 
+{
+    Write-Host "Creating TaxonomySession objects for destination site " $dRootCtx.Web.Url -foregroundcolor Green
+    $dTaxoSession = [Microsoft.SharePoint.Client.Taxonomy.TaxonomySession]::GetTaxonomySession($dRootCtx)
+    $dTaxoSession.UpdateCache();
+
+    $dRootCtx.Load($dTaxoSession)
+    $dRootCtx.Load($dTaxoSession.TermStores)
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $dTermStore = $dTaxoSession.TermStores[0];
+    $dRootCtx.Load($dTermStore)
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $dSiteCollGroup = $dTermStore.GetSiteCollectionGroup($dRootCtx.Site, $true);
+    $dTermSet = $dSiteCollGroup.CreateTermSet("NyceConnectNavigation", [guid]::NewGuid(), $dTermStore.WorkingLanguage);
+
+    $dTermStore.CommitAll();
+    $dRootCtx.Load($dTermSet)
+    $dRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $dNavTermSet = [Microsoft.SharePoint.Client.Publishing.Navigation.NavigationTermSet]::GetAsResolvedByWeb($dRootCtx, $dTermSet, $dRootCtx.Web, "GlobalNavigationTaxonomyProvider");
+
+    $dNavTermSet.IsNavigationTermSet = $true;
+    $dNavTermSet.TargetUrlForChildTerms.Value = $dRootCtx.Web.ServerRelativeUrl + "/SitePages/Home.aspx"
+
+    $dTermStore.CommitAll();
+    $dRootCtx.ExecuteQuery();
+    Write-Host "Created TaxonomySession objects for destination site " $dRootCtx.Web.Url -foregroundcolor Green
+
+    start-sleep -s $ReqDelay;
+
+    Write-Host "Creating TaxonomySession objects for source site " $dRootCtx.Web.Url -foregroundcolor Green
+    $sTaxoSession = [Microsoft.SharePoint.Client.Taxonomy.TaxonomySession]::GetTaxonomySession($sRootCtx)
+    $sTaxoSession.UpdateCache();
+
+    $sRootCtx.Load($sTaxoSession)
+    $sRootCtx.Load($sTaxoSession.TermStores)
+    $sRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;    
+
+    $sTermStore = $sTaxoSession.TermStores[0];
+    $sRootCtx.Load($sTermStore)
+    $sRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    $sTermGroup = $sTermStore.GetSiteCollectionGroup($sRootCtx.Site, $true);
+    $sRootCtx.Load($sTermGroup)
+    $sRootCtx.Load($sTermGroup.TermSets)
+    $sRootCtx.ExecuteQuery();
+    start-sleep -S $ReqDelay;
+
+    #Get the term set
+    $sTermSet = $null
+    $sTermSet = $sTermGroup.TermSets.GetByName($sTermSetName)
+
+    #Get all tersm from the term set
+    $sTerms = $null
+    $sTerms = $sTermSet.Terms
+    $sRootCtx.Load($sTerms)
+    $sRootCtx.ExecuteQuery()
+    Write-Host "Created TaxonomySession objects for source site " $dRootCtx.Web.Url -foregroundcolor Green
+
+    start-sleep -s $ReqDelay;
+
+    Write-Host "Started export/import for managed navigation" -foregroundcolor Green
+    ExportnImport-TermsRecursively -cTerm $sTerms -dTerm $dNavTermSet
+    Write-host "Completed export/import for managed navigation" -ForegroundColor Green
+
+    Write-Host "Setting managed navigation" -foregroundcolor Green
+    Set-ManagedNavigation
+    Write-Host "Managed navigation applied" -foregroundcolor Green
+}
+Catch 
+{
+    Write-Host $_.Exception.Message -ForegroundColor Red;
+    echo $_.Exception | format-list -force | Out-File -FilePath .\Logs\ImportExport_ManagedNavigation.txt -Append;
+} 
+
+
+
+
+ 
+function Delete-QuickLaunchLinks($destWeb)
+{
+    $quickLaunchCollection = $destWeb.Navigation.QuickLaunch
+    $dRootCtx.Load($quickLaunchCollection)
+    $dRootCtx.ExecuteQuery()
+    start-sleep -s $ReqDelay;
+
+    if($quickLaunchCollection.Count -gt 0)
+    {
+        $quickLaunchCollection[0].DeleteObject();        
+        $dRootCtx.ExecuteQuery();
+        Write-Host "...............link removed" -foregroundcolor Cyan
+        start-sleep -S $ReqDelay;
+
+        Delete-QuickLaunchLinks -destWeb $destWeb
+    }
+    else
+    {
+        $dRootCtx.Load($destWeb.Webs)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+
+        foreach($tsWeb in $destWeb.Webs)
+        {
+            Write-Host "`nStarted cleaning quick launch for Web "$tsWeb.Title -ForegroundColor Green
+            Delete-QuickLaunchLinks -destWeb $tsWeb
+        }    
+    }
+}
+
+function Copy-QuickLinks($destWeb, $srcWeb)
+{
+    Write-Host "`nStarted export/import of quick launch for Web "$destWeb.Title -ForegroundColor Green
+
+    #List of link collection from source
+    $dQLaunchColl = $destWeb.Navigation.QuickLaunch
+    $dRootCtx.Load($dQLaunchColl)
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+    
+    #List of link collection from source
+    $sQLaunchColl = $srcWeb.Navigation.QuickLaunch
+    $sRootCtx.Load($sQLaunchColl)
+    $sRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    for($i=0; $i -lt $sQLaunchColl.Count; $i++)
+    {
+        if($sQLaunchColl[$i].Title.ToLower() -eq "site contents" -or $sQLaunchColl[$i].Title.ToLower() -eq "page not found" -or $sQLaunchColl[$i].Title.ToLower() -eq "recent" -or $sQLaunchColl[$i].Title.ToLower() -eq "home")
+        {
+            continue;
+        }
+
+        $newNavNode = New-Object Microsoft.SharePoint.Client.NavigationNodeCreationInformation;
+        $newNavNode.Title = $sQLaunchColl[$i].Title;
+
+        if($sQLaunchColl[$i].Url.Length -gt 0)
+        {
+            $newNavNode.Url = $sQLaunchColl[$i].Url.Replace($srcWeb.ServerRelativeUrl, $destWeb.ServerRelativeUrl);
+            
+            if(!$sQLaunchColl[$i].Url.Contains($srcWeb.ServerRelativeUrl))
+            {
+                $newNavNode.IsExternal = $true;
+            }
+            else
+            {
+                $newNavNode.IsExternal = $false;
+            }
+        }
+        else
+        {
+            $newNavNode.IsExternal = $true;
+        }
+                
+        $dQLaunchColl.Add($newNavNode) | Out-Null;        
+        $dRootCtx.ExecuteQuery() | Out-Null;
+        start-sleep -S $ReqDelay;
+
+        $dQLaunchColl = $destWeb.Navigation.QuickLaunch
+        $dRootCtx.Load($dQLaunchColl)
+        $dRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+        
+        $sRootCtx.Load($sQLaunchColl[$i].Children)
+        $sRootCtx.ExecuteQuery()
+        start-sleep -S $ReqDelay;
+        Write-Host "...............Added link "$newNavNode.Title -foregroundcolor Cyan
+
+        $parentNode = $dQLaunchColl | Where {$_.Title -eq $newNavNode.Title};  
+
+        if($sQLaunchColl[$i].Children.Count -gt 0)
+        {
+            for($j=0; $j -lt $sQLaunchColl[$i].Children.Count; $j++)
+            {
+                $newChildNode = New-Object Microsoft.SharePoint.Client.NavigationNodeCreationInformation;
+                $newChildNode.Title = $sQLaunchColl[$i].Children[$j].Title;               
+
+                if($sQLaunchColl[$i].Children[$j].Url.Length -gt 0)
+                {
+                    $newChildNode.Url = $sQLaunchColl[$i].Children[$j].Url.Replace($srcWeb.ServerRelativeUrl, $destWeb.ServerRelativeUrl);
+            
+                    if(!$sQLaunchColl[$i].Children[$j].Url.Contains($srcWeb.ServerRelativeUrl))
+                    {
+                        $newChildNode.IsExternal = $true;
+                    }
+                    else
+                    {
+                        $newChildNode.IsExternal = $false;
+                    }
+                }
+                else
+                {
+                    $newChildNode.IsExternal = $true;
+                }
+
+                $newChildNode.AsLastNode = $true;                
+                $parentNode.Children.Add($newChildNode) | Out-Null;
+                Write-Host "........................Added sub-link "$newChildNode.Title -foregroundcolor Cyan
+            }
+
+            if($ndColl.Count -gt 0)
+            {
+                $dRootCtx.Load($parentNode.Children)
+                $dRootCtx.ExecuteQuery() | Out-Null;
+                start-sleep -S $ReqDelay;
+            }
+        }
+    }    
+
+    $sRootCtx.Load($srcWeb.Webs)
+    $sRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    $dRootCtx.Load($destWeb.Webs)
+    $dRootCtx.ExecuteQuery()
+    start-sleep -S $ReqDelay;
+
+    foreach($tsWeb in $srcWeb.Webs)
+    {
+        $tdWeb = $destWeb.Webs | Where { $_.Title -eq $tsWeb.Title }
+
+        if($tdWeb -ne $null)
+        {
+            Copy-QuickLinks -destWeb $tdWeb -srcWeb $tsWeb
+        }
+    }
+}
+
+Write-Host "`n`nStarted Quick Launch cleanup" -ForegroundColor Green
+Write-Host "`nStarted cleaning quick launch for Web "$dRootCtx.Web.Title -ForegroundColor Green
+Delete-QuickLaunchLinks -destWeb $dRootCtx.Web
+Write-Host "`nCompleted Quick Launch cleanup " -ForegroundColor Green
+
+Write-Host "`nStarted Export/Import of Quick Launch" -ForegroundColor Green
+Copy-QuickLinks -destWeb $dRootCtx.Web -srcWeb $sRootCtx.Web
+Write-Host "`nCompleted Export/Import of Quick Launch" -ForegroundColor Green 
+
+
+
+
+
+ 
+CLS
+
+write-host "Data Import started !"
+$StartDate = (GET-DATE);
+write-host $StartDate
+
+
+Add-PSSnapin Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue
+
+
+# Load the Client object Model Assemblies
+[System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SharePoint.Client");
+[System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SharePoint.Client.Runtime");
+[System.Reflection.Assembly]::LoadWithPartialName(“System.Data.SqlClient”);
+
+
+
+function fixfootprintchars($strValue)
+{
+    $retValue = $null;
+
+    if($strValue -ne $null -and $strValue -ne [System.DBNull]::Value)
+    {
+
+        #multi-select translation values
+        $retValue = $strValue.Replace("__b"," ").Replace("__a","'").Replace("__q","''").Replace("__t","` ").Replace("__m","@").Replace("__d",".").Replace("__u","-").Replace("__s",";").Replace("__c",":").Replace("__p",")").Replace("__P","(").Replace("__3","#").Replace("__4","$").Replace("__5","%").Replace("__6","@").Replace("__7","&").Replace("__8","*").Replace("__0","~").Replace("__f","/").Replace("__F","\").Replace("__Q","?").Replace("__e","]").Replace("__E","[").Replace("__g",">").Replace("__G","<").Replace("__B","!").Replace("__W","{").Replace("__w","}").Replace("__C","=").Replace("__A","+").Replace("__I","|").Replace("__M",",");
+
+        #Character Field translation values
+        $retValue = $retValue.Replace("&#34;","''").Replace("&#60;","<").Replace("&#62;",">").Replace("&#39;","'").Replace("&#96;","'`'").Replace("&#58;",":").Replace("&#92;","\")
+    }
+    
+    return $retValue;
+} 
+
+
+
+
+
+#-----------------------------------------------------------### SQL Connection and Data #### --------------------------------------------------------------
+$sqlConn = New-Object System.Data.SqlClient.SqlConnection
+$sqlConn.ConnectionString = “Server=WMSQLD01.DEV1.NYCERS.ORG;Integrated Security=true;Initial Catalog=SharePointFootPrints”
+$sqlConn.Open()
+
+$sqlcmd = $sqlConn.CreateCommand()
+$sqlcmd = New-Object System.Data.SqlClient.SqlCommand
+$sqlcmd.Connection = $sqlConn
+$query = “Select * From [dbo].[View_Requests] where [status] != 'closed'  and SubmitDate >= '01/01/2018' order by SubmitDate desc”
+$sqlcmd.CommandText = $query
+
+$adp = New-Object System.Data.SqlClient.SqlDataAdapter $sqlcmd
+$DataSet = New-Object System.Data.DataSet
+$adp.Fill($DataSet) | Out-Null
+
+
+#-----------------------------------------------------------### SP List  #### --------------------------------------------------------------
+## Fetch data from Stored Procedure
+Add-PSSnapin Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue
+
+#Get Sharepoint List
+#$Web = Get-SPWeb "https://nycers.sharepoint.com/sites/nycersdev/IT/servicecatalog/"
+#$List = $Web.Lists["Footprints"]
+
+
+$siteUrl = "https://nycers.sharepoint.com/sites/nycersdev/IT/servicecatalog/";
+$username = "ajoshi@nycers.org";
+$Password = Read-Host -Prompt "Please enter your password"  -AsSecureString;
+
+# Creating QA site context
+$ctx = New-Object Microsoft.SharePoint.Client.ClientContext($siteUrl);
+$credentials = New-Object Microsoft.SharePoint.Client.SharePointOnlineCredentials($username, $password);
+$ctx.Credentials = $credentials;
+
+#load the List
+$mainList = $ctx.Web.Lists.GetByTitle("AJFootPrints");
+$ctx.Load($mainList);
+$ctx.ExecuteQuery();
+
+
+ForEach ($Project in $DataSet.Tables[0]) 
+
+{ 
+
+ #Update Existing Project if the match found
+
+    #$SPQuery = New-Object System.Data.SqlClient.SPQuery 
+    #$SPQuery.Query = "<Where><Eq><FieldRef Name='FootprintsID' /><Value Type='Text'>" + $Project.'FootprintsID' + "</Value></Eq></Where>"
+    
+     
+     $caml = "<View><Query><Where><Eq><FieldRef Name='mrID'/><Value Type='Text'>" + $Project.'FootprintsID' + "</Value></Eq></Where></Query></View>"  
+     $Query = New-Object Microsoft.SharePoint.Client.CamlQuery;
+     $Query.ViewXml = $caml 
+     
+     Try {
+            $ListItems = $mainList.GetItems($Query) 
+            $ctx.Load($ListItems)
+            $ctx.ExecuteQuery()
+                      
+     }
+     catch {
+            Write-Host $_.Exception.Message -ForegroundColor Red;
+            echo $_.Exception | format-list -force | Out-File -FilePath FootprintsLog.txt -Append;
+     }
+   
+
+    if($ListItems.Count -gt 0)
+
+    {
+       foreach($Item in $ListItems)
+        { 
+ 
+         #----------------------------------------------------#update existing Project data if update dates are different. #### --------------------------------------------------------------
+            
+             If((get-date $Project.'LastUpdatedDate').Date -ne  (get-date $Item['mrUPDATEDATE']).Date)
+             {
+
+                   
+                    $Item["mrID"] = $Project.'RFCNumber'
+                    $Item["Title"] = $Project.'RFCNumber'
+
+                    $Item["Age"] = $Project.'Age'
+                    $Item["AssignedBA"] = $Project.'AssignedBA'
+                    $Item["AssignedQATester"] = $Project.'AssignedQATester'
+                    $Item["BAPriority"] = $Project.'Priority'
+                    $Item["BRD__b__f__bLetter__bSpecs"] = $Project.'BRD'
+                    $Item["IT__bBulletin__bMessage"] = $Project.'Bulletin'
+                    $Item["Business__bAnalyst"] =  fixfootprintchars($Project.'BusinessAnalyst')
+                    $Item["BusinessImpact"] =      $Project.'BusinessImpact'
+                    $Item["BusinessPriority"] =    $Project.'BusinessPriority'
+                    $Item["BusinessRank"] =        $Project.'BusinessRank'
+                    $Item["BusinessUrgency"] =     $Project.'BusinessUrgency'
+                    $Item["Category"] =            fixfootprintchars($Project.'Category')
+
+                    IF([string]::IsNullOrEmpty($Project.'ClosedDate'))   
+                    {
+                
+                    }else {            
+                        $Item["DateClosed"] = Get-Date $Project.'ClosedDate'; 
+                    }
+
+
+                    $Item["Completion__bCode"] =      fixfootprintchars($Project.'CompletionCode')
+                    
+                    IF([string]::IsNullOrEmpty($Project.'Created'))   
+                    {
+                
+                    }else {            
+                        $Item["[Created"] = $Project.'Created'; 
+                    }
+                    
+                    
+                    IF([string]::IsNullOrEmpty($Project.'DaytimeDeploymentToProd'))   
+                    {
+                
+                    }else {            
+                        $Item["Day__btime__bDeployment__bto__bP"] = $Project.'DaytimeDeploymentToProd'; 
+                    }
+
+                    $Item["mrDESCRIPTION"] =         fixfootprintchars($Project.'Description')
+                    $Item["Developer"] = fixfootprintchars($Project.'Developer')
+                    
+                    IF([string]::IsNullOrEmpty($Project.'DevelopmentDate'))   
+                    {
+              
+                    }else {            
+                        $Item["Development"]  = Get-Date $Project.'DevelopmentDate'; 
+                    }
+                    
+                    $Item["Division"] =            $Project.'Division'
+                    
+                    $Item["mrID"] = $Project.'FootprintsID'
+
+                    
+                    IF([string]::IsNullOrEmpty($Project.'LastUpdatedDate'))   
+                    {
+               
+                    }else {            
+                        $Item["mrUPDATEDATE"] = Get-Date $Project.'LastUpdatedDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'Modified'))   
+                    {
+               
+                    }else {            
+                        $Item["Modified"] = Get-Date $Project.'Modified'; 
+                    }
+
+                                       
+                                            
+                    $Item["mrALLDESCRIPTIONS"] = $Project.'AllDescriptions'
+                    $Item["mrASSIGNEES"] =           fixfootprintchars($Project.'Assignees')
+                    $Item["mrATTACHMENTS"] = $Project.'Attachments'
+                    $Item["mrESCALATEDBY"] = $Project.'EscalatedBy'
+                    $Item["mrNAMP_ID"] =  $Project.'NAMPID'
+                    $Item["mrPOPULARITY"] = $Project.'Popularity'
+                    $Item["mrREF_TO_AB"] = $Project.'REFtoAB'
+                    $Item["mrREF_TO_MR"] = $Project.'REFtoMR'
+                    $Item["mrREF_TO_MRX"] = $Project.'REFtoMRX'
+                    $Item["mrSOLUTION_TYPE"] = $Project.'SolutionType'
+                    $Item["mrSUBMITTER"] = $Project.'Submitter'
+                    $Item["mrSUBTASK_ORDER"] = $Project.'SubtaskOrder'
+                    $Item["mrUNASSIGNED"] = $Project.'Unassigned'
+                    $Item["mrURGENT"] = $Project.'Urgent'
+                    $Item["No__bQA__fUAT"] = fixfootprintchars($Project.'NoQAUAT')
+                    #$NewListItem["Notes"] = $Project.'Notes'
+                    $Item["Owner"] = $Project.'Owner'
+                    $Item["Phase__bStatus"] = fixfootprintchars($Project.'PhaseStatus')
+                    $Item["Owner"] = $Project.'Owner'
+                    $Item["mrPRIORITY"] = $Project.'Priority'
+                    $Item["Priority__bProjects"] =    fixfootprintchars($Project.'PriorityProjects')
+                    $Item["Prod__bDate__bConfidence__b__5"] =  $Project.'ProdDateConfidence'; 
+                   
+                                                           
+                    
+                    IF([string]::IsNullOrEmpty($Project.'ProductionDate'))   
+                    {
+               
+                    }else {            
+                        $Item["Production__bDate"] = Get-Date $Project.'ProductionDate'; 
+                    }
+
+                    $Item["Program"] = fixfootprintchars($Project.'Program')
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedDevDate'))   
+                    {
+                
+                    }else {            
+                        $Item["Projected__bDevelopment"] = Get-Date $Project.'ProjectedDevDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedProdDate'))   
+                    {
+             
+                    }else {            
+                        $Item["Projected__bProduction__bDate"] = Get-Date $Project.'ProjectedProdDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedQASignoff'))   
+                    {
+                 
+                    }else {            
+                        $Item["Projected__bQA__bSignoff"] = Get-Date $Project.'ProjectedQASignoff'; 
+                    }
+
+                     IF([string]::IsNullOrEmpty($Project.'ProjectedQAUATPromotion'))   
+                    {
+              
+                    }else {            
+                        $Item["QA__fUAT__bPromotion"] = Get-Date $Project.'ProjectedQAUATPromotion'; 
+                    }
+                     IF([string]::IsNullOrEmpty($Project.'ProjectedReqDate'))   
+                    {
+                
+                    }else {            
+                        $Item["Projected__bRequirements"] = Get-Date $Project.'ProjectedReqDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedUATSignoff'))   
+                    {
+               
+                    }else {            
+                        $Item["Projected__bUAT__bSignoff"] = Get-Date $Project.'ProjectedUATSignoff'; 
+                    }
+
+                    $Item["Project__bOwner"] = $Project.'ProjectOwner'
+                    $Item["ProjectSponsor"] = $Project.'ProjectSponsor'
+                    $Item["QAPriority"] = $Project.'QAPriority'
+
+                     IF([string]::IsNullOrEmpty($Project.'QASignoffDate'))   
+                    {
+               
+                    }else {            
+                        $Item["QA__bSignoff"] = Get-Date $Project.'QASignoffDate'; 
+                    }
+
+                     IF([string]::IsNullOrEmpty($Project.'QAUATPromotionDate'))   
+                    {
+                
+                    }else {            
+                        $Item["QA__fUAT__bPromotion"] = Get-Date $Project.'QAUATPromotionDate'; 
+                    }
+                    
+                    $Item["Quality__bAssurance"] = fixfootprintchars($Project.'QualityAssurance')
+
+                    $Item["RecordState"] =  $Project.'RecordState'; 
+
+                        
+               
+                    IF([string]::IsNullOrEmpty($Project.'Redeployment'))   
+                    {
+                
+                    } else {            
+                        $Item["Re__uDeployment"] = Get-Date $Project.'Redeployment'; 
+                    } 
+                    
+                   
+
+                    $Item["Release__bGroup"] =        fixfootprintchars($Project.'ReleaseGroup')
+
+                    $Item["Request__bType"] =         fixfootprintchars($Project.'RequestType')
+
+                    $Item["Requesting__bUnit"] = $Project.'RequestingUnit'   
+
+                     IF([string]::IsNullOrEmpty($Project.'RequirementsDate'))   
+                    {
+                
+                    } else {            
+                        $Item["Requirements"] = Get-Date $Project.'RequirementsDate'; 
+                    }
+                    
+                     IF([string]::IsNullOrEmpty($Project.'SDLCTestingDate'))   
+                    {
+                
+                    } else {            
+                        $Item["SDLCTestingDate"] = Get-Date $Project.'SDLCTestingDate'; 
+                    }
+
+                                      
+                    $Item["SDLCTesting"] = $Project.'SDLCTestingStage'
+
+                    $Item["SERVICE_REQUEST_CI_TYPE_ID"] = $Project.'ServiceRequstCITypeID'
+
+                    $Item["DomainExpert"] = $Project.'SME'
+
+                    $Item["Stage"] = $Project.'Stage'
+
+                    $Item["mrSTATUS"] = fixfootprintchars($Project.'Status')
+
+                    $Item["Sub__bProgram"] = fixfootprintchars($Project.'SubProgram')
+
+                    $Item["Sub__bProjects"] = fixfootprintchars($Project.'SubProjects') 
+                    
+                    IF([string]::IsNullOrEmpty($Project.'SubmitDate'))   
+                    {
+          
+                    }else {            
+                        $Item["mrSUBMITDATE"] = Get-Date $Project.'SubmitDate'; 
+                    }
+
+                    $Item["Technical__bLead"] =       fixfootprintchars($Project.'TechnicalLead')
+
+                    IF([string]::IsNullOrEmpty($Project.'TechnicalReviewDate'))   
+                    {
+          
+                    }else {            
+                        $Item["TechnicalReviewDate"] = Get-Date $Project.'TechnicalReviewDate'; 
+                    }
+
+                    $Item["mrTITLE"] =               fixfootprintchars($Project.'Title')
+
+                    $Item["Track"] = $Project.'Track' 
+
+                    IF([string]::IsNullOrEmpty($Project.'UATSignoffDate'))   
+                    {
+                
+                    }else {            
+                        $Item["UAT__bSignoff"] = Get-Date $Project.'UATSignoffDate'; 
+                    }
+
+                    $Item["WaitingOnPerson"] = $Project.'WaitingOn' 
+
+                    $Item["WaitingOnComment"] = $Project.'WaitingOnComments'
+
+                    $Item["Author"] = $Project.'CreatedBy' 
+
+
+                    $Item["Editor"] = $Project.'ModifiedBy' 
+
+
+
+                
+
+
+               Try
+               {
+                $Item.Update() 
+                $ctx.ExecuteQuery();
+                }
+
+                Catch
+                {
+                    Write-Host $_.Exception.Message -ForegroundColor Red;
+                    echo $_.Exception | format-list -force | Out-File -FilePath FootprintsLog.txt -Append;
+                }
+
+             }
+
+        }    
+
+
+     } 
+
+
+
+   #----------------------------------------------------##  Add New Item incase no match for Project Name. #### --------------------------------------------------------------
+
+
+
+   else 
+
+   {
+
+        if([string]::IsNullOrEmpty($Project.'RFCNumber')){
+
+            write-host $Project.'RFCNumber'+ " is empty and data not updated" -ForegroundColor Red;
+            echo $Project.'RFCNumber'+ " is empty and data not updated" | format-list -force | Out-File -FilePath FootprintsLog.txt -Append;
+
+        }
+
+        else{
+
+            $ListItemCreationInformation = New-Object Microsoft.SharePoint.Client.ListItemCreationInformation 
+            $NewListItem = $mainList.AddItem($ListItemCreationInformation) 
+
+            
+                    $NewListItem["mrID"] = $Project.'RFCNumber'
+                    $NewListItem["Title"] = $Project.'RFCNumber'
+
+                    $NewListItem["Age"] = $Project.'Age'
+                    $NewListItem["AssignedBA"] = $Project.'AssignedBA'
+                    $NewListItem["AssignedQATester"] = $Project.'AssignedQATester'
+                    $NewListItem["BAPriority"] = $Project.'Priority'
+                    $NewListItem["BRD__b__f__bLetter__bSpecs"] = $Project.'BRD'
+                    $NewListItem["IT__bBulletin__bMessage"] = $Project.'Bulletin'
+                    $NewListItem["Business__bAnalyst"] =  fixfootprintchars($Project.'BusinessAnalyst')
+                    $NewListItem["BusinessImpact"] =      $Project.'BusinessImpact'
+                    $NewListItem["BusinessPriority"] =    $Project.'BusinessPriority'
+                    $NewListItem["BusinessRank"] =        $Project.'BusinessRank'
+                    $NewListItem["BusinessUrgency"] =     $Project.'BusinessUrgency'
+                    $NewListItem["Category"] =            fixfootprintchars($Project.'Category')
+
+                    IF([string]::IsNullOrEmpty($Project.'ClosedDate'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["DateClosed"] = Get-Date $Project.'ClosedDate'; 
+                    }
+
+
+                    $NewListItem["Completion__bCode"] =      fixfootprintchars($Project.'CompletionCode')
+                    
+                    IF([string]::IsNullOrEmpty($Project.'Created'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["[Created"] = $Project.'Created'; 
+                    }
+                    
+                    
+                    IF([string]::IsNullOrEmpty($Project.'DaytimeDeploymentToProd'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["Day__btime__bDeployment__bto__bP"] = $Project.'DaytimeDeploymentToProd'; 
+                    }
+
+                    $NewListItem["mrDESCRIPTION"] =         fixfootprintchars($Project.'Description')
+                    $NewListItem["Developer"] = fixfootprintchars($Project.'Developer')
+                    
+                    IF([string]::IsNullOrEmpty($Project.'DevelopmentDate'))   
+                    {
+              
+                    }else {            
+                        $NewListItem["Development"]  = Get-Date $Project.'DevelopmentDate'; 
+                    }
+                    
+                    $NewListItem["Division"] =            $Project.'Division'
+                    
+                    $NewListItem["mrID"] = $Project.'FootprintsID'
+
+                    
+                    IF([string]::IsNullOrEmpty($Project.'LastUpdatedDate'))   
+                    {
+               
+                    }else {            
+                        $NewListItem["mrUPDATEDATE"] = Get-Date $Project.'LastUpdatedDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'Modified'))   
+                    {
+               
+                    }else {            
+                        $NewListItem["Modified"] = Get-Date $Project.'Modified'; 
+                    }
+
+
+                    
+                                            
+                    $NewListItem["mrALLDESCRIPTIONS"] = $Project.'AllDescriptions'
+                    $NewListItem["mrASSIGNEES"] =           fixfootprintchars($Project.'Assignees')
+                    $NewListItem["mrATTACHMENTS"] = $Project.'Attachments'
+                    $NewListItem["mrESCALATEDBY"] = $Project.'EscalatedBy'
+                    $NewListItem["mrNAMP_ID"] =  $Project.'NAMPID'
+                    $NewListItem["mrPOPULARITY"] = $Project.'Popularity'
+                    $NewListItem["mrREF_TO_AB"] = $Project.'REFtoAB'
+                    $NewListItem["mrREF_TO_MR"] = $Project.'REFtoMR'
+                    $NewListItem["mrREF_TO_MRX"] = $Project.'REFtoMRX'
+                    $NewListItem["mrSOLUTION_TYPE"] = $Project.'SolutionType'
+                    $NewListItem["mrSUBMITTER"] = $Project.'Submitter'
+                    $NewListItem["mrSUBTASK_ORDER"] = $Project.'SubtaskOrder'
+                    $NewListItem["mrUNASSIGNED"] = $Project.'Unassigned'
+                    $NewListItem["mrURGENT"] = $Project.'Urgent'
+                    $NewListItem["No__bQA__fUAT"] = fixfootprintchars($Project.'NoQAUAT')
+                    #$NewListItem["Notes"] = $Project.'Notes'
+                    $NewListItem["Owner"] = $Project.'Owner'
+                    $NewListItem["Phase__bStatus"] = fixfootprintchars($Project.'PhaseStatus')
+                    $NewListItem["Owner"] = $Project.'Owner'
+                    $NewListItem["mrPRIORITY"] = $Project.'Priority'
+                    $NewListItem["Priority__bProjects"] =    fixfootprintchars($Project.'PriorityProjects')
+                    $NewListItem["Prod__bDate__bConfidence__b__5"] =  $Project.'ProdDateConfidence'; 
+                   
+
+                                        
+                    
+                    IF([string]::IsNullOrEmpty($Project.'ProductionDate'))   
+                    {
+               
+                    }else {            
+                        $NewListItem["Production__bDate"] = Get-Date $Project.'ProductionDate'; 
+                    }
+                          $Item["Program"] = fixfootprintchars($Project.'Program')
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedDevDate'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["Projected__bDevelopment"] = Get-Date $Project.'ProjectedDevDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedProdDate'))   
+                    {
+             
+                    }else {            
+                        $NewListItem["Projected__bProduction__bDate"] = Get-Date $Project.'ProjectedProdDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedQASignoff'))   
+                    {
+                 
+                    }else {            
+                        $NewListItem["Projected__bQA__bSignoff"] = Get-Date $Project.'ProjectedQASignoff'; 
+                    }
+
+                     IF([string]::IsNullOrEmpty($Project.'ProjectedQAUATPromotion'))   
+                    {
+              
+                    }else {            
+                        $NewListItem["QA__fUAT__bPromotion"] = Get-Date $Project.'ProjectedQAUATPromotion'; 
+                    }
+                     IF([string]::IsNullOrEmpty($Project.'ProjectedReqDate'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["Projected__bRequirements"] = Get-Date $Project.'ProjectedReqDate'; 
+                    }
+
+                    IF([string]::IsNullOrEmpty($Project.'ProjectedUATSignoff'))   
+                    {
+               
+                    }else {            
+                        $NewListItem["Projected__bUAT__bSignoff"] = Get-Date $Project.'ProjectedUATSignoff'; 
+                    }
+
+                    $NewListItem["Project__bOwner"] = $Project.'ProjectOwner'
+                    $NewListItem["ProjectSponsor"] = $Project.'ProjectSponsor'
+                    $NewListItem["QAPriority"] = $Project.'QAPriority'
+
+                     IF([string]::IsNullOrEmpty($Project.'QASignoffDate'))   
+                    {
+               
+                    }else {            
+                        $NewListItem["QA__bSignoff"] = Get-Date $Project.'QASignoffDate'; 
+                    }
+
+                     IF([string]::IsNullOrEmpty($Project.'QAUATPromotionDate'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["QA__fUAT__bPromotion"] = Get-Date $Project.'QAUATPromotionDate'; 
+                    }
+                    
+                    $NewListItem["Quality__bAssurance"] = fixfootprintchars($Project.'QualityAssurance')
+
+                    $NewListItem["RecordState"] =  $Project.'RecordState'; 
+
+                        
+               
+                    IF([string]::IsNullOrEmpty($Project.'Redeployment'))   
+                    {
+                
+                    } else {            
+                        $NewListItem["Re__uDeployment"] = Get-Date $Project.'Redeployment'; 
+                    } 
+                    
+                   
+
+                    $NewListItem["Release__bGroup"] =        fixfootprintchars($Project.'ReleaseGroup')
+
+                    $NewListItem["Request__bType"] =         fixfootprintchars($Project.'RequestType')
+
+                    $NewListItem["Requesting__bUnit"] = $Project.'RequestingUnit'   
+
+                     IF([string]::IsNullOrEmpty($Project.'RequirementsDate'))   
+                    {
+                
+                    } else {            
+                        $NewListItem["Requirements"] = Get-Date $Project.'RequirementsDate'; 
+                    }
+                    
+                     IF([string]::IsNullOrEmpty($Project.'SDLCTestingDate'))   
+                    {
+                
+                    } else {            
+                        $NewListItem["SDLCTestingDate"] = Get-Date $Project.'SDLCTestingDate'; 
+                    }
+
+                                      
+                    $NewListItem["SDLCTesting"] = $Project.'SDLCTestingStage'
+
+                    $NewListItem["SERVICE_REQUEST_CI_TYPE_ID"] = $Project.'ServiceRequstCITypeID'
+
+                    $NewListItem["DomainExpert"] = $Project.'SME'
+
+                    $NewListItem["Stage"] = $Project.'Stage'
+
+                    $NewListItem["mrSTATUS"] =  fixfootprintchars($Project.'Status')
+
+                    $NewListItem["Sub__bProgram"] = fixfootprintchars($Project.'SubProgram')
+
+                    $NewListItem["Sub__bProjects"] = fixfootprintchars($Project.'SubProjects' )
+                    
+                    IF([string]::IsNullOrEmpty($Project.'SubmitDate'))   
+                    {
+          
+                    }else {            
+                        $NewListItem["mrSUBMITDATE"] = Get-Date $Project.'SubmitDate'; 
+                    }
+
+                    $NewListItem["Technical__bLead"] =       fixfootprintchars($Project.'TechnicalLead')
+
+                    IF([string]::IsNullOrEmpty($Project.'TechnicalReviewDate'))   
+                    {
+          
+                    }else {            
+                        $NewListItem["TechnicalReviewDate"] = Get-Date $Project.'TechnicalReviewDate'; 
+                    }
+
+                    $NewListItem["mrTITLE"] =               fixfootprintchars($Project.'Title')
+
+                    $NewListItem["Track"] = $Project.'Track' 
+
+                    IF([string]::IsNullOrEmpty($Project.'UATSignoffDate'))   
+                    {
+                
+                    }else {            
+                        $NewListItem["UAT__bSignoff"] = Get-Date $Project.'UATSignoffDate'; 
+                    }
+
+                    $NewListItem["WaitingOnPerson"] = $Project.'WaitingOn' 
+
+                    $NewListItem["WaitingOnComment"] = $Project.'WaitingOnComments'
+
+                    $NewListItem["Author"] = $Project.'CreatedBy' 
+
+
+                    $NewListItem["Editor"] = $Project.'ModifiedBy' 
+
+                    #$NewListItem["DaysOverdue"] = $Project.'DaysOverdue' 
+                    
+                    
+                    #$NewListItem["Overdue"] = $Project.'Overdue' 
+
+           
+                    #$NewListItem["LastModifiedOn"] =  Get-Date;
+
+            TRY
+
+            {
+                $NewListItem.Update()
+                $ctx.ExecuteQuery();
+                        
+            }
+
+            CATCH
+
+            {
+                 Write-Host $_.Exception.Message -ForegroundColor Red;
+                 echo $_.Exception + $Project.'RFCNumber' | format-list -force | Out-File -FilePath FootprintsLog.txt -Append;
+
+            }
+
+        }
+
+    }
+
+}
+
+$EndDate = (GET-DATE);
+$strTimeSpan = NEW-TIMESPAN –Start $StartDate –End $EndDate;
+echo $strTimeSpan | Out-File -FilePath FootprintsLog.txt -Append;
+write-host "Data Import completed!"
+ 
+
+$path = "C:\Program Files\Common Files\microsoft shared\Web Server Extensions\16\ISAPI\"
+
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.dll")
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.Runtime.dll")
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.Taxonomy.dll")
+Add-Type -Path (Resolve-Path "$($path)Microsoft.SharePoint.Client.Publishing.dll")
+
+Write-Host "`n`nStarted processing RRL Web" -foregroundcolor Green
+$username = "hgopalbhai@nycers.org";
+$Password = Read-Host -Prompt "Please enter your password"  -AsSecureString;
+$sCredentials = New-Object Microsoft.SharePoint.Client.SharePointOnlineCredentials($username, $Password)
+
+$dRrlUrl = "https://nycers.sharepoint.com/sites/QA/compliance/RRL";
+$dRrlCtx = New-Object Microsoft.SharePoint.Client.ClientContext($dRrlUrl)
+$dRrlCtx.Credentials = $sCredentials
+$dRrlCtx.Load($dRrlCtx.Web.Lists)    
+
+$dRrlCtx.ExecuteQuery()
+
+Write-Host "`nStarted processing list 'Document Library'" -foregroundcolor yellow
+$Mainlist = $dRrlCtx.Web.Lists.GetByTitle("Documents");    
+$dRrlCtx.Load($Mainlist)
+$dRrlCtx.Load($Mainlist.Fields)
+
+$dRrlCtx.ExecuteQuery()
+Write-Host "Document library object created";
+
+#----------------------processing list 'TierPlan Library'"------------------------------------------------------------------
+Write-Host "`nStarted processing list 'TierPlan Library'" -foregroundcolor yellow
+
+$caml = "<View><RowLimit>1000</RowLimit></View>"  
+$Query = New-Object Microsoft.SharePoint.Client.CamlQuery;
+$Query.ViewXml = $caml
+
+$drootUrl = "https://nycers.sharepoint.com/sites/QA";
+$drootCtx = New-Object Microsoft.SharePoint.Client.ClientContext($drootUrl)
+$drootCtx.Credentials = $sCredentials
+$drootCtx.Load($drootCtx.Web.Lists)
+
+$TiersPlanslist = $drootCtx.Web.Lists.GetByTitle("Tiers and Plans");    
+$drootCtx.Load($TiersPlanslist)
+$drootCtx.ExecuteQuery()
+
+$AllTPsItems = $TiersPlanslist.GetItems($Query);
+$drootCtx.Load($AllTPsItems)
+$drootCtx.ExecuteQuery()
+
+Write-Host "Document library object created";
+
+#----------------------processing list 'All Business Units List'"------------------------------------------------------------------
+Write-Host "`nStarted processing list 'All Business Units List'" -foregroundcolor yellow
+$BusinessUnitslist = $drootCtx.Web.Lists.GetByTitle("All Business Units");    
+$drootCtx.Load($BusinessUnitslist)
+$drootCtx.ExecuteQuery()
+
+$AllBUsItems = $BusinessUnitslist.GetItems($Query);
+$drootCtx.Load($AllBUsItems)
+$drootCtx.ExecuteQuery()
+
+Write-Host "Document library object created";
+
+#----------------------processing list 'All Business Processes List'"------------------------------------------------------------------
+Write-Host "`nStarted processing list 'All Business Processes List'" -foregroundcolor yellow
+$BusinessProcesseslist = $drootCtx.Web.Lists.GetByTitle("All Business Processes");
+$drootCtx.Load($BusinessProcesseslist)
+$drootCtx.ExecuteQuery()
+
+$AllBPsItems = $BusinessProcesseslist.GetItems($Query);
+$drootCtx.Load($AllBPsItems)
+$drootCtx.ExecuteQuery()
+
+Write-Host "Document library object created";
+
+#----------------------Excel Operation-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+#Declare the file path and sheet name
+Write-Host "Started reading memo excel sheet" -ForegroundColor Green;
+$file = (get-location).Path + "\" + "RRLDB.xlsx";  
+
+$sheetName = "Data";
+        
+#Declare the starting positions for each column
+$rowDirectiveNumber, $colDirectiveNumber = 1,1;
+$rowTitle, $colTitle = 1,2;
+$rowStatus, $colStatus = 1,3;
+$rowLinktoDocument, $colLinktoDocument = 1,4;
+$rowProcessOwner, $colProcessOwner = 1,5;
+$rowImpactedBusinessProccessOwners, $colImpactedBusinessProccessOwners = 1,6;
+$rowDocumentType, $colDocumentType = 1,7;
+$rowDateIssued, $colDateIssued = 1,8;
+$rowBusinessProcesses, $colBusinessProcesses = 1,9;
+$rowAuther, $colAuther = 1,10;
+$rowTierPlan, $colTierPlan = 1,11;
+$rowLawsRulesRegulations, $colLawsRulesRegulations = 1,12;
+$rowKeywords, $colKeywords = 1,13;
+$rowOrgDirectiveNumber, $colOrgDirectiveNumber = 1,14;
+$rowSupDirectiveNumber, $colSupDirectiveNumber = 1,15;
+$rowHistorical, $colHistorical = 1,16; 
+$rowException, $colException = 1,17;
+
+#Create an instance of Excel.Application and Open Excel file
+$objExcel = New-Object -ComObject Excel.Application;
+$workbook = $objExcel.Workbooks.Open($file);
+$sheet = $workbook.Worksheets.Item($sheetName);
+$objExcel.Visible = $false;
+Write-Host "Excel sheet loaded";
+
+#Count max row
+$rowMax = ($sheet.UsedRange.Rows).count;
+
+Write-Host "Looping through each row of the memo sheet";
+        
+for ($i=1; $i -le $rowMax-1; $i++)
+{
+    Try
+    {
+        $lnkObj = "";
+        $LinktoDocument = "";
+        $LinktoDocument =  $sheet.Cells.Item($rowLinktoDocument + $i, $colLinktoDocument).Hyperlinks;
+        #$lnkObj = $sheet.Cells.Item($rowLinktoDocument + $i, $colLinktoDocument); #.Hyperlinks                
+                
+        $LinktoDocument | ForEach-Object {
+            $LinktoDocument = $_.Address;
+        }
+        
+        try  
+        { 
+            $LinktoDocument = $LinktoDocument.ToLower(); 
+        }
+        catch
+        {
+            continue;
+        }
+
+        if($LinktoDocument.StartsWith("\\Hulk.prod.nycers.org\public\Executive\Directives\".ToLower())){
+            $LinktoDocument = $LinktoDocument.Replace("\\Hulk.prod.nycers.org\public\Executive\Directives\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Directives\".ToLower());
+        }
+               
+        elseif($LinktoDocument.Contains("\\hulk\public\Executive\Directives".ToLower())){
+            $LinktoDocument = $LinktoDocument.Replace("\\hulk\public\Executive\Directives\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Directives\".ToLower());
+        }
+        elseif($LinktoDocument.Contains("\\hulk\public\executive\directives")){
+            $LinktoDocument = $LinktoDocument.Replace("\\hulk\public\executive\directives\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Directives\".ToLower());
+        }
+            elseif($LinktoDocument.Contains("\\hulk\public\executive\Directives")){
+            $LinktoDocument = $LinktoDocument.Replace("\\hulk\public\executive\Directives\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Directives\".ToLower());
+        }
+            elseif($LinktoDocument.Contains("\\hulk\public\Executive\directives".ToLower())){
+            $LinktoDocument = $LinktoDocument.Replace("\\hulk\public\Executive\directives\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Directives\".ToLower());
+        }
+        elseif(($LinktoDocument.Contains("\\Hulk.prod.nycers.org\public\Compliance Division\Board Rules\Reference Libray BD Rules\".ToLower()))){
+            $LinktoDocument = $LinktoDocument.Replace("\\Hulk.prod.nycers.org\public\Compliance Division\Board Rules\Reference Libray BD Rules\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Reference Libray BD Rules\".ToLower());
+        }
+            elseif(($LinktoDocument.Contains("\\Hulk.prod.nycers.org\public\Compliance Division\Director's Memos\".ToLower()))){
+            $LinktoDocument = $LinktoDocument.Replace("\\Hulk.prod.nycers.org\public\Compliance Division\Director's Memos\", "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Director's Memos\".ToLower());
+        }
+            elseif(($LinktoDocument.Contains("\\Hulk.prod.nycers.org\my unit\Compliance\Tools and Automation\Agencywide\".ToLower()))){
+            $LinktoDocument = $LinktoDocument.Replace("\\Hulk.prod.nycers.org\my unit\Compliance\Tools and Automation\Agencywide\Director's Memos\".ToLower(), "\\Hulk\unit share\IRM Applications\Irmappl\INTERNET\AccessDB\Director's Memos\".ToLower());
+        }
+
+        # Calling Memo Title to replace name of the document
+        $MemotitleforName = "";
+        $MemotitleforName = $sheet.Cells.Item($rowTitle + $i, $colTitle).text;
+        $DocName = "";
+        $DocName = $LinktoDocument.Substring($LinktoDocument.LastIndexOf("\") + 1);
+
+        # Extracting file extension 
+        $DocExtension = [System.IO.Path]::GetExtension($DocName)
+
+        $FileStream = New-Object IO.FileStream($LinktoDocument, [System.IO.FileMode]::Open);
+        $FileCreationInfo = New-Object Microsoft.SharePoint.Client.FileCreationInformation;
+        #$FileCreationInfo.name = $MemotitleforName;
+
+        $FileCreationInfo.Overwrite = $false;
+        $FileCreationInfo.ContentStream = $FileStream;
+        $FileCreationInfo.URL = $MemotitleforName + $DocExtension   #$i.ToString() + "_" +
+        $Upload = $Mainlist.RootFolder.Files.Add($FileCreationInfo);
+        Write-Host "Uploading memo document to SPO library";
+
+        $dRrlCtx.Load($Upload);
+        $dRrlCtx.Load($Upload.ListItemAllFields);
+        $dRrlCtx.Load($mainList.ContentTypes);
+        $dRrlCtx.Load($mainList.Fields);
+        $dRrlCtx.ExecuteQuery();           
+        $itemID = $Upload.ListItemAllFields.Id;
+
+        start-sleep (2);
+        $item= $mainList.GetItemById($itemID);
+        $dRrlCtx.Load($item);
+        $dRrlCtx.ExecuteQuery();
+
+        Write-Host "Fetching content type id";
+        $newCTID = "";
+        foreach($ct in  $Mainlist.ContentTypes)
+        {
+            if($ct.Name.ToUpper() -eq "Regulation Reference Library CT")
+            {
+                $newCTID = $ct.ID;
+            }
+        }
+            
+        #$item["ContentTypeId"] = $newCTID;
+        Write-Host "Content type id updated";
+  
+        #1
+        $DocumentNumber = "" ;
+        $DocumentNumber = $sheet.Cells.Item($rowDirectiveNumber + $i, $colDirectiveNumber).text;
+        $item["DocumentNumber"] =  $DocumentNumber
+
+        #2
+        $ProcessOwner = "";
+        $ProcessOwner = $sheet.Cells.Item($rowProcessOwner + $i, $colProcessOwner).text.Trim();
+        #$item["ProcessOwners"] =  $ProcessOwner
+       
+        $ProcessOwnerFinal = "";
+        $ListBUs = $ProcessOwner.Split(",");  
+        
+        foreach($term in $ListBUs)
+        {
+            $term = $term.Trim();
+            $ProcessOwnerItems = $AllBUsItems | where { $_['Title'] -eq $term }
+            $ProcessOwnerItems | ForEach-Object {
+                               $ProcessOwnerFinal += $_['ID'].Tostring() + ";#" + $_['Title'].Tostring() + ";#" ;
+            }
+        }   
+
+        $item["InitialProcessOwners"] =  $ProcessOwnerFinal
+
+        #3
+        $RRLStatus = "";
+        $RRLStatus = $sheet.Cells.Item($rowStatus + $i, $colStatus).text;
+        $item["RRLStatus"] = $RRLStatus
+
+        #5 - These are Business Units
+        $BusinessUnitsFinal = "";
+        $ListBUs = $sheet.Cells.Item($rowImpactedBusinessProccessOwners + $i, $colImpactedBusinessProccessOwners).text; 
+        $arrBUs = "";
+        $DivisionValuesAll = ""; 
+        $arrBUs = $ListBUs.Split(",");  
+        $DivisionValue = ""
+
+
+        foreach($term in $arrBUs)
+        {
+            $term = $term.Trim();
+            $BusinessUnitItems = $AllBUsItems | where { $_['Title'] -eq $term }
+            $BusinessUnitItems | ForEach-Object {
+                                $BusinessUnitsFinal += $_['ID'].Tostring() + ";#" + $_['Title'].Tostring() + ";#" ;
+                                $DivisionValue +=  $_['Division'].LookupId.Tostring() + ";#" + $_['Division'].LookupValue.Tostring() + ";#" ;                                
+            }            
+        }    
+
+        $item["BusinessUnits"] = $BusinessUnitsFinal
+        $item["Divisions"] = $DivisionValue
+
+        #6
+        $DocumentType = "";
+        $DocumentType = $sheet.Cells.Item($rowDocumentType + $i, $colDocumentType).text;
+        $item["DocumentType"]  =  $DocumentType
+
+        #8
+        $DateIssued = "";
+        $DateIssued = $sheet.Cells.Item($rowDateIssued + $i, $colDateIssued).text.Trim();
+        #$item["DateIssued"] = $DateIssued + "T07:52:12Z"
+        $item["DateIssued"] = $DateIssued 
+
+        $item["Year"] =  $DateIssued.Substring($DateIssued.LastIndexOf("/") + 1);
+
+        #9
+        $BusinessProcessesFinal = "";
+        $BusinessProcesses = "";
+        $BusinessProcesses = $sheet.Cells.Item($rowBusinessProcesses + $i, $colBusinessProcesses).text;
+        $arrBUs = "";
+
+        $arrBUs = $BusinessProcesses.Split(",");  
+
+        foreach($term in $arrBUs)
+        {
+            $term = $term.Trim();
+            $BusinessProcessesItems = $AllBPsItems | where { $_['Title'] -eq $term }
+            $BusinessProcessesItems | ForEach-Object {
+                              $BusinessProcessesFinal += $_['ID'].Tostring() + ";#" + $_['Title'].Tostring() + ";#" ;
+            }
+        }    
+
+        $item["BusinessProcesses"] = $BusinessProcessesFinal        
+
+        #10
+        $AuthorOld = "";
+        $AuthorOld = $sheet.Cells.Item($rowAuther + $i, $colAuther).text.Trim();
+        $item["AuthorOld"] = $AuthorOld 
+
+        #11
+        $TierPlanFinal= "";
+        $TierPlan = $sheet.Cells.Item($rowTierPlan + $i, $colTierPlan).text;
+        $arrTPTerms = $TierPlan.Split(",");    
+   
+   
+        foreach($term in $arrTPTerms)
+        {
+            $term = $term.Trim();
+            $TierPlanItems = $AllTPsItems | Where { $_['Title'] -eq $term }
+            $TierPlanItems | ForEach-Object {
+                  $TierPlanFinal += $_['ID'].Tostring() + ";#" + $_['Title'].Tostring() + ";#" ;
+            }
+        }    
+
+        $item["TierPlans"] = $TierPlanFinal
+       
+
+        #12
+        $LawsRulesRegulations = "";
+        $LawsRulesRegulations = $sheet.Cells.Item($rowLawsRulesRegulations + $i, $colLawsRulesRegulations).text;
+        $item["LawsRulesRegulations"] = $LawsRulesRegulations
+
+        #13
+        $Keywords = "";
+        $Keywords = $sheet.Cells.Item($rowKeywords + $i, $colKeywords).text;
+        $item["Keywords"] = $Keywords
+
+
+        #14
+        $CurrentMemoNumber = "";
+        $CurrentMemoNumber = $sheet.Cells.Item($rowOrgDirectiveNumber + $i, $colOrgDirectiveNumber).text;
+        $item["CurrentMemoNumber"] = $CurrentMemoNumber
+
+        #15
+        $SupersededByMemoNumber = "";
+        $SupersededByMemoNumber = $sheet.Cells.Item($rowSupDirectiveNumber + $i, $colSupDirectiveNumber).text;
+        $item["SupersededByMemoNumber"] = $SupersededByMemoNumber 
+
+        #16
+        $Historical = "";
+        $Historical = $sheet.Cells.Item($rowHistorical + $i, $colHistorical).text;
+        $item["Historical"] =  $Historical
+                
+        #Write-Host "`n======> ($i) Processing '$LinktoDocument'" -ForegroundColor Green; 
+              
+        $item.Update();
+        #$dRrlCtx.Load($item);
+        $dRrlCtx.ExecuteQuery();
+        Write-Host "Document's metadata updated";
+        $item = $null;
+
+        # Wait for 3 seconds in order to avoid 429 error code (server is busy)
+        start-sleep (2); 
+
+        # Publishing the file
+        # Write-Host "Publishing file:" $item["FileLeafRef"];
+        # $item.File.CheckIn("Auto check-in by PowerShell script", 1);
+        # $item.File.Publish("Auto publish by PowerShell script");
+        # $dRrlCtx.Load($item);
+        # $dRrlCtx.ExecuteQuery();
+        # Write-Host "File Published" -ForegroundColor Green;
+    }
+    Catch
+    {
+        Write-Host "Error occurred..." -ForegroundColor Red;
+        $startTime = Get-Date;
+        $ddd = "#Row: " + $i.ToString() + ", Memo Rule Number : " + $MemoRuleNumber + ", Date: " + $startTime.ToString("u");
+        echo $ddd | Out-File -FilePath .\Logs\ErrorLog.txt -Append;
+        echo $_.Exception|format-list -force | Out-File -FilePath .\Logs\ErrorLogMemo.txt -Append;
+
+        $errFile = $MemoRuleNumber + ", " + $LinktoDocument;
+        echo $errFile | Out-File -FilePath .\Logs\FailedUploadlstFiles.txt -Append;
+
+        $NoErrInFiles = $NoErrInFiles + 1;
+    }
+} 
+
+
+
