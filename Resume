@@ -1,0 +1,257 @@
+
+		
+AJAY JOSHI
+
+Contact No: 908-565-4945 (Cell)
+Email: ajayshruti@gmail.com
+
+                            
+
+SUMMARY: 	Microsoft Certified .NET Developer (MCAD). Having civil servant title (Certified IT Developer Applications). Over 12 years of comprehensive experience including architecting applications design, development and maintenance under Client-server, N-tier and Web environment using Enterprise Technologies. Client/Server includes Retirement, Banking, Finance, Sales and Marketing.   Also possess knowledge of Share Point/ Mainframe/ Rest API/ Web Services/Databases etc. Has excellent communication and interpersonal skills with high level of adaptability.
+
+Area of Expertise:	Address business needs in time and within the budget of the agency. Laid guidelines and provided complex strategical solutions/ approaches to the agency. Single handedly managed complex projects like (NYCERS web project www.nycers.org ) as single point of contact. Recently took initiative to implement SharePoint project (already in production) on agency level.
+
+
+SharePoint experience summary (highlights)
+ 
+Visual Studio based customization
+•	   Developed RestApi for cloud (Windows Azure) communications from workflow. 
+SharePoint Designer based customization
+•	Customization of OOB web part, external content type, external list, web page customization, JSOM coding, custom actions for list and library 
+•	Worked with Bootstrap for responsive UI 
+•	Site branding using custom Master Page, Page Layouts, JavaScript, CSS with help of SharePoint Designer.
+SharePoint SME/Architect
+•	Designing and deploying SharePoint applications on SharePoint Online/Office 365
+•	Strong knowledge of server side and client side coding standards and best practices
+•	Thorough understanding of out-of-box functionalities
+•	Process automation with the help of SharePoint workflow 
+•	Single page application by using Angular2/4 
+•	Third party application integration (BindTuning)
+•	Strong experience on visual studio, SharePoint designer and browser based customization
+•	Very good hands on experience on PowerShell scripting
+•	hands on experience on server-side object model, client side object model (CSOM, JSOM, RestApi), provider hosted apps
+•	Used PowerShell CSOM for database migration into SharePoint lists.
+•	Good understanding architectural difference between different flavors of SharePoint server side/client side.
+Customization via browser
+•	Navigation, permission management, manages list/libraries, web page customization, UI customization (minor).
+•	Content type, site column
+•	Enterprise content management
+
+
+
+
+
+
+      
+ SKILLS:
+
+Operating System	Windows server 2008 Enterprise R2 , Windows 7.0/2000/XP/2003, Windows NT 4.0
+Frameworks	Dot Net Framework 4.5/4.0/3.5, Entity framework
+Languages	C#, T-SQL, VB.NET
+RDBMS	SQL Server 2000/2005/2008/2012
+ Tools	JIRA, Test Director, Axure, Bitbucket, Visio, 
+Methodologies	Agile, SCRUM, RUP ,Waterfall, RAD
+JS Framework	Angular2/4, jQuery
+Web Development	SharePoint Online 2013, ASP.NET, ASP.NET MVC, CSS, XSLT, XML, JavaScript, DotNetNuke, Bootstrap
+
+
+EXPERIENCE: 
+
+NYCEConnect (SharePoint Online 2013)
+
+08/2017 - Present
+(Employee)	NYCERS (New York City Employee Retirement Systems), Brooklyn, NY
+
+SharePoint :  Client side object model (CSOM), workflow (VS 2013), Web API
+LANGUAGES:  C#, T-SQL
+TECHNOLOGIES:   .NET 4.5
+DATABASE: MSSQL Server 2012, MS Excel
+TOOLS: JIRA
+	DESCRIPTION:
+				
+Currently working as SharePoint developer/architect and Certified IT developer (applications) civil title code 13643 at NYCERS, responsible for the architecture and design of SharePoint Portal for document management and divisions collaboration. 
+
+RESPONSIBILITIES
+
+•	Involved in analyzing business requirements, design and development of SharePoint portal.
+•	Created Wireframes, Architecture and Agile development methodology documentation in Confluence/JIRA.
+•	Implemented Regulation Reference Library process approval & archival workflow.
+•	Designed and organized the SharePoint document repositories using managed metadata and responsive design.
+•	Established SharePoint Best Practice guidelines, Governance and Security management across the agency.
+•	Worked with external data sources (MS Excel/SQL Database) using PowerShell scripting 
+•	Developed WebApi for Govt holidays into workflows. Also accessed AD users in SharePoint Online (Azure environment).
+•	Develop custom solution to display RFCs data (from SQL Server) in SharePoint with the help of WebAPI and third party (datatables.net) data plugins for jQuery.
+•	Provided support for the existing SharePoint website and added new features.
+•	Used Bootstrap 3.3 with smart wizard third party tool for form navigation.
+•	Used OOB approval workflows
+•	Branding the portal by customizing the master pages
+
+09/2010 -07/2017		NYCERS (New York City Employee Retirement Systems), Brooklyn, NY
+(Employee)			
+			LANGUAGES:  ASP.NET, VB.NET, HTML, XML, Java
+			OS AND HARDWARE:  Windows 2008 R2/7.0 /2000 Server and XP
+TECHNOLOGIES:   .NET 4.5/2.0
+			DATABASE: MSSQL Server 2012/2008/DB2
+			WEB SERVER: Internet Information Server 7.0/6.0 
+			TOOLS:  ASP.NET Components, IBM DB2 connector, MS Visio and Web trends 
+			
+			DESCRIPTION:
+				
+Currently as project team lead, architect and certified IT developer (applications) civil title code 13643 at NYCERS, responsible for the architecture and design of the web application www.nycers.org web site. I was involved in doing re-architecture of NYCERS web site including server migration, code migration to new distributed servers including disaster recovery center in Long Island City. As part of re-architecting the web site, we configured IIS 7.0 application server, DB server to copy data from Mainframe and re-aligned web services server to feed the web site. I also configured Verisign certificate HTTPS on IIS web application server for secured communications between third party vendors like www.officialpayments.com and NYCERS. 
+
+RESPONSIBILITIES:
+
+	Successfully able to host NYCERS website in house and saved over hundred thousand dollars per year.
+	Currently as project lead working on NYCERS web site www.nycers.org as part of sever migration project.
+	Analyzed different phases of project like planning and designing the layout of servers (application, DB, Web Services etc) prepared architectural Visio diagrams for better communication between units.
+	As a project lead I prepared server software installation list and prepared technical document for future environments UAT and Prod.
+	Created internet server migration/architecting reports for management to communicate the way management understands the technicalities of complex project in form of diagrams or visual representation.
+	Assigned task lists to project managers on server migration project plan documents.
+	Direct work to QA group to automate test scripts in Test Director.
+	Conducted meetings with different units like IT/Server Management, IT/DB, IT/Web services, IT/Communications to bring everyone on same page during different phases of internet migration/architecting project.
+	Worked as project lead to communicate between different teams and created migration deployment document for each unit.
+	Involved in infrastructure architectures diagrams/ runbooks for the projects.  
+	Worked with IBM and Protivity companies in application security assessment test.
+	Currently working with third party vendor to implement Web Content Management (WCM) for www.nycers.org 
+	Developed POM (Proactive Outreach  Management)  process on website (www.nycers.org)
+	Identified integration and automation parts between two big projects NYCERS website and NYCEwork (FileNet). Automated Loans process, Change of Address process and Buyback online process.
+	NYCERS sent me training on SharePoint2013 implementation as agency wide. Working parallel to gather info about architecting/implementation of web sites in SharePoint projects.
+	Went training to Learning Tree Training Center for few other courses like (SharePoint, Java best practices and design patterns, .NET 4.5 programming for existing .NET developers) to broaden my vision in future technologies.
+	Also took courses on www.udemy.com for ASP.NET MVC 5, Spring and Hibernate for Beginners. 
+
+
+
+03/2002 – 09/2010	NYCERS (New York City Employee Retirement Systems), Brooklyn, NY
+(Consultant)			
+			LANGUAGES:  ASP.NET, VB.NET, HTML, XML, Java
+			OS AND HARDWARE:  Windows 2008 R2/7.0 /2000 Server and XP
+TECHNOLOGIES:   .NET 4.5/2.0
+			DATABASE: MSSQL Server 2012/2008/DB2
+			WEB SERVER: Internet Information Server 7.0/6.0 
+			TOOLS:  ASP.NET Components, IBM DB2 connector, MS Visio and Web trends 
+
+
+DESCRIPTION:
+Currently as team lead and certified IT developer (applications) Title Code 13643 at NYCERS, responsible for the architecture and design of the web application www.nycers.org. NYCERS provides future retirement benefit for New York City Employees. NYCERS provides future retirement benefit for New York City Employees. Project is divided into different milestones and phases like member verification, loan calculators, FAQs tracking, SPLO, Buy Back and retirement calculators for different tiers. Member logs in and views its member information about services, loans availability and other important information. Site is divided into Internet and Intranet.  User can view specific parts of site depends on who the user logs in as Admin, Admin FAQs, normal user or super user. User calculates Loan for different Tiers (1/2, 3/4 or Double Dipper). View FAQs and Admin user can download FAQs and clear the counter values. The tools we are using to develop the site are Windows 2008/7.0/2003/XP, SQL Server 2012/2008/2005, ASP.NET, VB.NET/C#, XML, Visual Studio.NET 2013/2010/2005 (for development phase and deployment) and ADO.NET.
+
+
+
+
+RESPONSIBILITIES:
+
+
+	Developed and implemented Planet Press product for centralize printing. Also responsible for setting up servers and configurations of Planet Press production piece.
+	Understand, Design, migrating and implementing different phases and modules of project 
+	Managing project management with project plans and organizing meetings with stake holders.
+	Using .NET technologies using ASP.NET, ADO.NET, C#/VB.NET and Visual Studio. NET
+	Developed. ASPX pages, Code Behind, Database wrapper classes ,utility classes and Helper classes
+	Creating NTier , site application, Business objects using VB.NET with ADO.NET
+	Maintaining SSL secure site. 
+	Configured web services for Intranet application 
+	On Backend, Writing Stored Procedure to get data from SQL server 2005/2008.
+	Developed multithreaded processes to encrypt and decrypt crucial data into database 
+	Used reflection classes to unregistered remotely users 
+	Working with XML (Web.Config,. Resx files) 
+	Prepare flat file data for mainframe vsam files 
+	Installing and maintaining Servers having Windows 2003/XP, SQL Server 2000 and IIS 6.0/7.0.
+	Troubleshooting and Installing latest service packs on servers
+	Documenting and Creating Visio diagrams for site flow and architecture
+	Installing, Archiving, Branching and integrating Visual Studio.NET with Visual Source Safe 6.0
+	Build User Controls for navigations of site 
+	Doing code review on weekly basis
+	Done documentation on server setups, code, installing service and security patches.
+
+
+
+
+01/01 - 01/02 		TOPPS COMPANY INC., Manhattan, NY
+			
+			PROJECT- 1: www.etopps.com
+			LANGUAGES: ASP, ASP.NET, VB.NET, VBScript JavaScript, HTML/DHTML, 					CSS, XML/XSL, and XSLT
+			OS AND HARDWARE: Windows 2000 Advanced Server, Windows 2000 Data 					Center
+			TECHNOLOGIES: COM+/COM/DCOM, MSMQ, ADO2.6, ADO.NET, Activex
+			Controls, WindowsDNA Architecture.
+			DATABASE: MSSQL Server 2000 (4 Processors)
+			WEB SERVER: Internet Information Server 5.0
+		APPLICATION SERVER: Application Center 3.0, Microsoft Transaction Sever 		
+	(MTS)
+TOOLS: ADSI (Active Directory Services Interfaces), LDAP (Lightweight Directory 			Access Protocol), NLB (Network Load Balance), CLB (Component Load Balance, 		
+AspUpload, ASP components, Webstress Tools, MS Visio, Erwin 3.5, PayFlow Pro 		
+(Verisign)
+
+			DESCRIPTION:
+
+Successfully done project for Topps Company Inc., NY, as a Sr. Web Developer. Topps creates trading cards and initiates the trading of cards on ebay.com. The introduction about the process is the user comes to site and makes his portfolio and owns the cards. Then the user can auction the card, sell it or put it into the secondary market. Then allocation (in which credit card validation and authentication comes into play), fulfillment (Directly related to inventory), delivery (Checking out orders, Billing address and validation Shipping address), inventory (Each card has its own inventory) and maintains the Account History for each Portfolio, IPO orders, Delivery and Auctions comes into play. The major module in etopps.com includes Online Order Processing, Secondary Market Trading, and Inventory Management. Registration, Delivery Processing, Portfolio Management. Account history Management, Session Management. I created the Fulfillment module, Delivery module and Account History module. I was part of a team that created the middle layer and the back end layer. Also created one module on presentation layer. The tools we used to develop the site are Windows 2000, SQL Server 2000, ASP, XML, XSLT (for presentation layer), and XML Spy for generating the XDR Schemas and validating the XML document. COM+, ADSI (Active Directory Services Interfaces), LDAP (Lightweight Directory Access Protocol) and ADO. I was involved in all the three layers, front end using the XML, ASP 3.0, and XSLT on middle layer developing the COM+ components ship to different servers and maintain them. On backend written stored procedures to get XML strings to view and to use them for validation and display purposes on the presentation layer. Migrate Account History Management module to ASP.NET using Visual Studio.NET (beta 2 release), VB.NET and ADO.NET on IIS 5.0 Develop Web Services for Intranet clients.
+
+ENVIRONMENT: 
+
+Windows 2000, .NET Framework, ASP.NET, ADO.NET, VB.NET and Visual Studio. NET,
+ SQL Server 2000,IIS 5.0, COM APIs, inline ASP, XML, Visual Source Safe 6.0 and ADO.NET
+
+		
+			RESPONSIBILITIES:
+
+	Migrate Account History Management module to. NET technologies using ASP.NET, ADO.NET, VB.NET and Visual Studio. NET
+	Developed ASP pages. Used Java Script, VBScript for validations.
+	Worked on XML, XSLT, and XML Spy for generating the XDR Schemas and validating the XML document.
+	In middle layer, developed COM+ Business objects using Visual Basic 6.0 with ADO.
+	In backend layer, Wrote Stored Procedure to get data in XML format with desired Schemas from SQL server 2000.
+	Installing and maintaining Production Servers having Windows 2000, SQL Server 2000 and Application Center 2000.
+	Used SOAP to interact with the www.ebay.com
+	For Security, developed scripts for ADSI (Active Directory Services Interfaces) on Windows 2000 and using LDAP (Light Weight Directory Access Protocol) for User Administration in the web site and permissions to User and Groups.
+
+			ENVIRONMENT: 
+
+			Windows 2000, ADSI (Active Directory Services Interfaces), LDAP (Light Weight Directory Access 
+Protocol), NET tools, ASP.NET, ADO.NET, VB.NET and Visual Studio. NET, VB 6.0, SQL Server 
+2000, MTS, IIS, COM, COM+, ASP +, VB Scripts, Java Script, XML, XSL, XSLT, XML Scripting, 
+XSL, DOM, XML Spy for generating the XDR Schemas and validating the XML document and ADO.
+
+
+08/00 - 01/01		CGU NORTH PACIFIC, Portland, OR
+			
+			PROJECT- 2: Integra Express (Work Flow Management System)
+			LANGUAGES: ASP, VBScript JavaScript, HTML/DHTML, XML, XHTML, and XML
+			Scripting, XSL and DOM
+			OS AND HARDWARE: Windows NT
+			TECHNOLOGIES: COM/DCOM, ADO2.5, and Activex Controls
+			DATABASE: Oracle 8i, Sybase 11.X/12.0
+			WEB SERVER: Internet Information Server 5.0
+		APPLICATION SERVER: Application Center 3.0, Microsoft Transaction Sever 		
+	(MTS)
+			TOOLS: FileNET Panagon IDM, AspUpload, and ASP components
+
+			
+			DESCRIPTION:
+
+CGU Integra Express (Work Flow Management System) is a combination of imaging system and workflow system. Imaging system scans the document or fax and stored as an image. Workflow is the 
+Process of routing work between tasks to be performed. A work order is created for each electronic image that represents a transaction and an electronic image is stored for later retrieval and viewing. This system is based on n-tier client/server architecture. Workflow is the process of routing work between tasks to be performed. A work order is created for each electronic image that represents a transaction and an electronic image is stored for later retrieval and viewing. This includes FileNET Panagon 	
+IDM (a third pary tool) Object database services layer, business object layer and user facets (Windows). Filenet is a high transaction workflow and eProcess software which enabling external and internal users to automate and drive critical business activities and personalized content creation.
+			
+
+
+
+			RESPONSIBILITIES: 
+
+	FileNET Panagon IDM Object database services layer, business object layer and user facets (Windows).
+	Developed user interface using ASP2.0, Java Script, VBScript and HTML/DHTML
+	Developed COM Business objects using Visual Basic 6.0
+	Front end validation using Java Script and VB script
+	Write UNIX shell scripting for running the batch jobs.
+	Used MTS for deploying COM objects
+
+			ENVIRONMENT: 
+
+			VB 6.0, Oracle 8i, Sybase 11.X/12.0, HP-UNIX, MTS, IIS, COM, ASP, VB Scripts, Java Script, 
+DHTML, HTML, XML, XHTML, XML Scripting, XSL and DOM
+
+
+
+EDUCATION: 
+
+			PUNJAB UNIVERSITY, Chandigarh (India)
+			BS
+
+			DAV COLLEGE OF MANAGEMENT (India)
+			Post Graduate in Business Management 
+
