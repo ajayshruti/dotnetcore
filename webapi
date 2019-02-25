@@ -1,0 +1,198 @@
+Dated: 03/23/2018		WEBAPI Documentation
+  			       (SharePointOnlineAPIs )
+Title 
+
+
+
+
+
+
+
+
+URL	SharePointOnlineAPIs
+
+Description: This webAPI is currently being used in SharePoint RRL (Reference Library) 
+workflow. This web service meets two business requirements:
+1.	Gets Active Directory users from AD group.
+2.	Calculates Due date in RRL (Reference Library)
+
+.NET MVC architecture in Visual Studio 2017 Software used to develop this WebAPIs.
+
+(PROD)    https://api.nycers.org/api/sharepointapi/    
+Physical Server name (\\wiissp08\SPOWebAPI)
+
+
+(UAT)       https://uatapi.nycers.org  
+Physical Server name (\\wiissq08.uat.nycers.org\SPOWebAPI)
+
+
+(DEV)       https://devapi.nycers.org
+Physical Server name (\\wiissd08.dev1.nycers.org\SPOWebAPI)
+
+
+	
+Method1	CalculateSurveyDueDates         HTTP POST
+URL 
+
+Params 
+
+
+
+Method2
+URL
+Params
+
+
+
+
+Method3
+URL
+Params	     https://api.nycers.org/api/sharepointapi/CalculateSurveyDueDates/
+
+  Required: currentDate=[string] , DueDaysToAdd= [Integer] , DueDaysToAdd= [Integer],  
+                    securityToken = [security token]
+  Output: Calculated date in string
+
+
+GetUsers               HTTP POST
+https://api.nycers.org/api/sharepointapi/GetUsers/
+Required: currDivision =[string] , ‘Division Group’
+Output: List of all the users in AD Group
+
+
+GetUsersEmailForADGroups       HTTP POST
+https://api.nycers.org/api/sharepointapi/GetUsersEmailForADGroups/
+Required: currDivision =[string] , ‘Division Group’
+Output: List of email address all the users in AD Group
+
+Method4
+
+URL
+Params
+
+
+
+Success Response
+
+
+
+
+Error Response
+
+
+
+
+
+
+
+
+
+Sample Call
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	CalculateDueDate     HTTP POST
+https://api.nycers.org/api/sharepointapi/CalculateDueDates/
+Required: currentDate=[string] , DaysToAdd = [Integer] , securityToken = [security token]
+Output: Calculated date in a string format
+
+
+
+	Status code should be 200 
+
+Example: 
+Code: 200 
+
+	Most endpoints will have many ways they can fail. From unauthorized access, to wrongful 
+parameters etc. All of those should be listed here. It might seem repetitive, but it helps prevent assumptions from being made where they shouldn’t be.
+Example: 
+Code: 401 UNAUTHORIZED 
+Content: { error : "Log in" }
+OR
+Code: 500  INTERNAL SERVER ERROR
+Content: { error : "IIS ERROR " }
+	[Sample call for GetUsers method]
+
+Below is JSON params to test webapi call 
+
+{
+	"ADGroupName" : "SharePointDevTeam",
+	"securityToken":"d22353af-da0a-477a-978d-7f5af6ad9acb"
+} });
+
+
+Set headers to below:
+ 
+
+ 
+
+
+[Sample call for CalculateSurveyDueDates method]
+
+{
+	"CurrentDateTime" : "03/26/2018",
+	"DueDaysToAdd":1,
+	"EndDaysToAdd":2,
+	"securityToken":"d22353af-da0a-477a-978d-7f5af6ad9acb"
+}
+
+Output:
+{
+    "DueDate": "0001-01-02T00:00:00",
+    "EndDate": "0001-01-03T00:00:00"
+}
+
+
+
+[Sample call for GetUsersEmailForADGroups  method]
+
+{
+	"ADGroupName" : "SharePointDevTeam",
+	"securityToken":"d22353af-da0a-477a-978d-7f5af6ad9acb"
+}
+
+Output:
+{
+    "UsersEmailIds": "hgopalbhai@nycers.org;memono@nycers.org;Bczerwinski@nycers.org;
+PPrakash@nycers.org",
+    "UsersLoginIds": "hgopalbhai;memono;Bczerwinski;Pprakash"
+}
+
+[Sample call for CalculateDueDate method]
+
+{
+	"currentDate" : "03/23/2018",
+	"DaysToAdd":"2",
+	"securityToken":"d22353af-da0a-477a-978d-7f5af6ad9acb"
+}
+
+Output:
+
+       "2018-03-27T00:00:00"
+	
+
+WEBAPI Setup
+	Workflow services farm hosted within Azure Govt. space IP (23.97.2.151). A firewall rule was 
+created to allow Azure IP 23.97.2.151 to the api.nycers.org server (10.120.0.118) on port TCP/443
+, HTTPS.
+NYCERS API server (in DMZ) talks to SharePoint online (Azure) in a secured way (HTTPS). 
+WebAPI cannot be accessible from outside. User has to be successfully authenticated inside NYCERS AD group 
+in order to login to NYCEConnect portal. IT/Server Mgmt worked with Microsoft in order to setup server to server communication only. 
+Logs	Logs are stored under C:/temp/SPOWebAPI/logs folder setup on config file.
+Sample: 
+  
+
+
+
